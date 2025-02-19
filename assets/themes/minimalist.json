@@ -1,0 +1,14 @@
+{
+    "name": "Minimalist",
+    "board": {
+        "lightSquares": "#DEE3E6",
+        "darkSquares": "#8CA2AD",
+        "border": "#404040",
+        "highlightMove": "#90A4AE",
+        "highlightCheck": "#F44336"
+    },
+    "pieces": {
+        "set": "minimalist",
+        "scale": 0.9
+    }
+}

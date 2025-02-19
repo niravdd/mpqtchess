@@ -1,0 +1,14 @@
+{
+    "name": "Classic",
+    "board": {
+        "lightSquares": "#FFFFFF",
+        "darkSquares": "#769656",
+        "border": "#404040",
+        "highlightMove": "#BACA2B",
+        "highlightCheck": "#FF0000"
+    },
+    "pieces": {
+        "set": "classic",
+        "scale": 0.9
+    }
+}

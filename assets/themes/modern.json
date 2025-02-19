@@ -1,0 +1,14 @@
+{
+    "name": "Modern",
+    "board": {
+        "lightSquares": "#EEEED2",
+        "darkSquares": "#769656",
+        "border": "#404040",
+        "highlightMove": "#829769",
+        "highlightCheck": "#C84147"
+    },
+    "pieces": {
+        "set": "modern",
+        "scale": 0.85
+    }
+}
