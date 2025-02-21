@@ -1,11 +1,12 @@
 // src/gui/MainWindow.cpp
 #include "MainWindow.h"
-#include <QApplication>
-#include <QMenuBar>
-#include <QMessageBox>
-#include <QFileDialog>
-#include <QDockWidget>
-#include <QSettings>
+#include "../util/ThemeManager.h"
+#include <QtWidgets/QApplication>   // QApplication is main widget application class
+#include <QtWidgets/QMenuBar>       // QMenuBar is a widget
+#include <QtWidgets/QMessageBox>    // QMessageBox is a widget
+#include <QtWidgets/QFileDialog>    // QFileDialog is a widget
+#include <QtWidgets/QDockWidget>    // QDockWidget is a widget
+#include <QtCore/QSettings>         // QSettings is core functionality
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -44,17 +45,14 @@ MainWindow::MainWindow(QWidget* parent)
 void MainWindow::createMenus()
 {
     QMenu* fileMenu = menuBar()->addMenu(tr("&File"));
-    fileMenu->addAction(tr("&New Game"), this, &MainWindow::newGame,
-                       QKeySequence::New);
+
+    fileMenu->addAction(tr("&New Game"), QKeySequence::New, this, &MainWindow::newGame);
     fileMenu->addAction(tr("&Connect..."), this, &MainWindow::connectToGame);
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("&Save Game"), this, &MainWindow::saveGame,
-                       QKeySequence::Save);
-    fileMenu->addAction(tr("&Load Game"), this, &MainWindow::loadGame,
-                       QKeySequence::Open);
+    fileMenu->addAction(tr("&Save Game"), QKeySequence::Save, this, &MainWindow::saveGame);
+    fileMenu->addAction(tr("&Load Game"), QKeySequence::Open, this, &MainWindow::loadGame);
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("&Exit"), qApp, &QApplication::quit,
-                       QKeySequence::Quit);
+    fileMenu->addAction(tr("&Exit"), QKeySequence::Quit, qApp, &QApplication::quit);
     
     QMenu* viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(controlDock_->toggleViewAction());
@@ -160,13 +158,13 @@ void MainWindow::createToolBars()
 {
     QToolBar* gameToolBar = addToolBar(tr("Game"));
     gameToolBar->addAction(QIcon(":/icons/new.png"), tr("New Game"),
-                          this, &MainWindow::newGame);
+        this, &MainWindow::newGame);
     gameToolBar->addAction(QIcon(":/icons/connect.png"), tr("Connect"),
-                          this, &MainWindow::connectToGame);
+        this, &MainWindow::connectToGame);
     gameToolBar->addAction(QIcon(":/icons/save.png"), tr("Save"),
-                          this, &MainWindow::saveGame);
+        this, &MainWindow::saveGame);
     gameToolBar->addAction(QIcon(":/icons/load.png"), tr("Load"),
-                          this, &MainWindow::loadGame);
+        this, &MainWindow::loadGame);
 }
 
 void MainWindow::loadSettings()
@@ -205,4 +203,46 @@ void MainWindow::closeEvent(QCloseEvent* event)
 {
     saveSettings();
     event->accept();
+}
+
+void MainWindow::newGame()
+{
+    if (game_) {
+        game_->reset();
+        boardView_->update();
+    }
+}
+
+void MainWindow::connectToGame()
+{
+    ConnectDialog dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString address = dialog.getAddress();
+        quint16 port = dialog.getPort();
+        client_->connectToServer(address, port);
+    }
+}
+
+void MainWindow::saveGame()
+{
+    QString fileName = QFileDialog::getSaveFileName(this,
+        tr("Save Game"), "",
+        tr("Chess Game (*.chs);;All Files (*)"));
+
+    if (!fileName.isEmpty()) {
+        game_->saveToFile(fileName);
+    }
+}
+
+void MainWindow::loadGame()
+{
+    QString fileName = QFileDialog::getOpenFileName(this,
+        tr("Load Game"), "",
+        tr("Chess Game (*.chs);;All Files (*)"));
+
+    if (!fileName.isEmpty()) {
+        game_->loadFromFile(fileName);
+        boardView_->update();
+        moveHistory_->loadFromGame(game_.get());
+    }
 }

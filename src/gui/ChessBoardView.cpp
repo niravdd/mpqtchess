@@ -1,7 +1,7 @@
 // src/gui/ChessBoardView.cpp
 #include "ChessBoardView.h"
-#include <QResizeEvent>
-#include <QGraphicsDropShadowEffect>
+#include <QtGui/QResizeEvent>
+#include <QtWidgets/QGraphicsDropShadowEffect>
 
 ChessBoardView::ChessBoardView(QWidget* parent)
     : QGraphicsView(parent)

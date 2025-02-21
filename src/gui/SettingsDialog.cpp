@@ -1,11 +1,11 @@
 // src/gui/SettingsDialog.cpp
 #include "SettingsDialog.h"
 #include "../util/Settings.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGroupBox>
-#include <QLabel>
-#include <QPushButton>
+#include <QtWidgets/QVBoxLayout>     // Layout widget
+#include <QtWidgets/QHBoxLayout>     // Layout widget
+#include <QtWidgets/QGroupBox>       // Container widget
+#include <QtWidgets/QLabel>          // Label widget
+#include <QtWidgets/QPushButton>     // Button widget
 
 SettingsDialog::SettingsDialog(QWidget* parent)
     : QDialog(parent)

@@ -19,33 +19,33 @@ void ChessBoard::initializeBoard()
     }
 
     // Set up black pieces
-    board_[0][0] = std::make_shared<ChessPiece>(PieceType::ROOK, PieceColor::Black);
-    board_[0][1] = std::make_shared<ChessPiece>(PieceType::KNIGHT, PieceColor::Black);
-    board_[0][2] = std::make_shared<ChessPiece>(PieceType::BISHOP, PieceColor::Black);
-    board_[0][3] = std::make_shared<ChessPiece>(PieceType::QUEEN, PieceColor::Black);
-    board_[0][4] = std::make_shared<ChessPiece>(PieceType::KING, PieceColor::Black);
-    board_[0][5] = std::make_shared<ChessPiece>(PieceType::BISHOP, PieceColor::Black);
-    board_[0][6] = std::make_shared<ChessPiece>(PieceType::KNIGHT, PieceColor::Black);
-    board_[0][7] = std::make_shared<ChessPiece>(PieceType::ROOK, PieceColor::Black);
+    board_[0][0] = std::make_shared<ChessPiece>(PieceType::Rook, PieceColor::Black);
+    board_[0][1] = std::make_shared<ChessPiece>(PieceType::Knight, PieceColor::Black);
+    board_[0][2] = std::make_shared<ChessPiece>(PieceType::Bishop, PieceColor::Black);
+    board_[0][3] = std::make_shared<ChessPiece>(PieceType::Queen, PieceColor::Black);
+    board_[0][4] = std::make_shared<ChessPiece>(PieceType::King, PieceColor::Black);
+    board_[0][5] = std::make_shared<ChessPiece>(PieceType::Bishop, PieceColor::Black);
+    board_[0][6] = std::make_shared<ChessPiece>(PieceType::Knight, PieceColor::Black);
+    board_[0][7] = std::make_shared<ChessPiece>(PieceType::Rook, PieceColor::Black);
 
     // Set up black pawns
     for (int col = 0; col < 8; col++) {
-        board_[1][col] = std::make_shared<ChessPiece>(PieceType::PAWN, PieceColor::Black);
+        board_[1][col] = std::make_shared<ChessPiece>(PieceType::Pawn, PieceColor::Black);
     }
 
     // Set up white pieces
-    board_[7][0] = std::make_shared<ChessPiece>(PieceType::ROOK, PieceColor::White);
-    board_[7][1] = std::make_shared<ChessPiece>(PieceType::KNIGHT, PieceColor::White);
-    board_[7][2] = std::make_shared<ChessPiece>(PieceType::BISHOP, PieceColor::White);
-    board_[7][3] = std::make_shared<ChessPiece>(PieceType::QUEEN, PieceColor::White);
-    board_[7][4] = std::make_shared<ChessPiece>(PieceType::KING, PieceColor::White);
-    board_[7][5] = std::make_shared<ChessPiece>(PieceType::BISHOP, PieceColor::White);
-    board_[7][6] = std::make_shared<ChessPiece>(PieceType::KNIGHT, PieceColor::White);
-    board_[7][7] = std::make_shared<ChessPiece>(PieceType::ROOK, PieceColor::White);
+    board_[7][0] = std::make_shared<ChessPiece>(PieceType::Rook, PieceColor::White);
+    board_[7][1] = std::make_shared<ChessPiece>(PieceType::Knight, PieceColor::White);
+    board_[7][2] = std::make_shared<ChessPiece>(PieceType::Bishop, PieceColor::White);
+    board_[7][3] = std::make_shared<ChessPiece>(PieceType::Queen, PieceColor::White);
+    board_[7][4] = std::make_shared<ChessPiece>(PieceType::King, PieceColor::White);
+    board_[7][5] = std::make_shared<ChessPiece>(PieceType::Bishop, PieceColor::White);
+    board_[7][6] = std::make_shared<ChessPiece>(PieceType::Knight, PieceColor::White);
+    board_[7][7] = std::make_shared<ChessPiece>(PieceType::Rook, PieceColor::White);
 
     // Set up white pawns
     for (int col = 0; col < 8; col++) {
-        board_[6][col] = std::make_shared<ChessPiece>(PieceType::PAWN, PieceColor::White);
+        board_[6][col] = std::make_shared<ChessPiece>(PieceType::Pawn, PieceColor::White);
     }
 }
 
@@ -70,7 +70,7 @@ bool ChessBoard::movePiece(const Position& from, const Position& to, PieceType p
 
     // Handle pawn promotion
     if (promotionPiece != PieceType::None &&
-        piece->getType() == PieceType::PAWN &&
+        piece->getType() == PieceType::Pawn &&
         (to.row == 0 || to.row == 7)) {
         board_[to.row][to.col] = std::make_shared<ChessPiece>(promotionPiece, piece->getColor());
     } else {
@@ -81,7 +81,7 @@ bool ChessBoard::movePiece(const Position& from, const Position& to, PieceType p
     piece->setMoved();
 
     // Update king position if king was moved
-    if (piece->getType() == PieceType::KING) {
+    if (piece->getType() == PieceType::King) {
         if (piece->getColor() == PieceColor::White) {
             whiteKingPos_ = to;
         } else {
@@ -112,22 +112,22 @@ std::vector<Position> ChessBoard::getPossibleMoves(const Position& pos) const
     }
 
     switch (piece->getType()) {
-        case PieceType::PAWN:
+        case PieceType::Pawn:
             getPawnMoves(pos, piece->getColor(), moves);
             break;
-        case PieceType::KNIGHT:
+        case PieceType::Knight:
             getKnightMoves(pos, piece->getColor(), moves);
             break;
-        case PieceType::BISHOP:
+        case PieceType::Bishop:
             getBishopMoves(pos, piece->getColor(), moves);
             break;
-        case PieceType::ROOK:
+        case PieceType::Rook:
             getRookMoves(pos, piece->getColor(), moves);
             break;
-        case PieceType::QUEEN:
+        case PieceType::Queen:
             getQueenMoves(pos, piece->getColor(), moves);
             break;
-        case PieceType::KING:
+        case PieceType::King:
             getKingMoves(pos, piece->getColor(), moves);
             break;
         default:

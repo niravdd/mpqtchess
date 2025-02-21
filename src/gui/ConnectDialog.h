@@ -1,8 +1,8 @@
 // src/gui/ConnectDialog.h
 #pragma once
-#include <QDialog>
-#include <QLineEdit>
-#include <QSpinBox>
+#include <QtWidgets/QDialog>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QSpinBox>
 
 class ConnectDialog : public QDialog {
     Q_OBJECT

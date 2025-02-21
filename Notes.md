@@ -116,4 +116,18 @@ windeployqt.exe chess_client.exe
 
 # Fix rpath (macOS)
 macdeployqt chess_client.app
-Would you like me to provide more specific details for your particular operating system or explain any part in more detail?
+
+------------------------------------------------------------------------------------------------------
+
+>>
+The same principle applies to other Qt includes - they should reference their full module path:
+
+Qt Core classes: <QtCore/...>
+Qt Widgets classes: <QtWidgets/...>
+Qt GUI classes: <QtGui/...>
+Qt Network classes: <QtNetwork/...>
+For example:
+
+<QGraphicsView> → <QtWidgets/QGraphicsView>
+<QTcpServer> → <QtNetwork/QTcpServer>
+<QColor> → <QtGui/QColor>

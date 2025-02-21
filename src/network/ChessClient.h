@@ -70,6 +70,7 @@ private:
     void processGameStateMessage(const NetworkMessage& msg);
     void processMoveMessage(const NetworkMessage& msg);
     void processPlayerActionMessage(const NetworkMessage& msg);
+    void processConnectResponse(const NetworkMessage& msg);
     
     QTcpSocket socket_;
     PieceColor playerColor_;

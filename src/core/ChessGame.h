@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <map>
 
 enum class GameResult {
     InProgress,
@@ -16,6 +17,7 @@ enum class GameResult {
 struct Move {
     Position from;
     Position to;
+    PieceType piece;
     PieceType promotionPiece;
     bool isCapture;
     bool isCheck;
@@ -60,10 +62,15 @@ public:
     
     PieceColor getCurrentTurn() const { return currentTurn_; }
     const ChessBoard& getBoard() const { return *board_; }
-    const std::vector<MoveRecord>& getMoveHistory() const { return moveHistory_; }
+    const std::vector<MoveRecord>& getMoveHistory() const;
     
     std::shared_ptr<ChessPiece> getPieceAt(const Position& pos) const;
     bool isGameOver() const { return gameOver_; }
+    std::string getGameResult() const;
+    void resign(PieceColor color);
+    void offerDraw(PieceColor color);
+    void acceptDraw();
+    void declineDraw();
     
 private:
     std::unique_ptr<ChessBoard> board_;
@@ -72,13 +79,32 @@ private:
     bool gameOver_;
     int halfMoveClock_;  // For fifty-move rule
     int fullMoveNumber_;
-    
+
     void recordMove(const Move& move, PieceType piece);
-    bool wouldBeInCheck(const Position& from, const Position& to, 
-                       PieceColor color) const;
+    bool wouldBeInCheck(const Position& from, const Position& to, PieceColor color) const;
     void updateGameState(PieceColor color);
     bool hasLegalMoves(PieceColor color) const;
     bool hasSufficientMaterial() const;
+    void initializeGame();
+    bool handleCastling(const Position& from, const Position& to);
+    bool handleEnPassant(const Position& from, const Position& to);
+    bool isValidPosition(const Position& pos) const;
+    bool isValidCastling(const Position& from, const Position& to, PieceColor playerColor) const;
+    bool isValidEnPassant(const Position& from, const Position& to, PieceColor playerColor) const;
+    bool isSquareUnderAttack(const Position& pos, PieceColor playerColor) const;
+    bool isDiagonallyThreatened(const Position& pos, PieceColor attacker, const ChessBoard& board) const;
+    bool isStraightThreatened(const Position& pos, PieceColor attacker, const ChessBoard& board) const;
+    bool isKnightThreatened(const Position& pos, PieceColor attacker, const ChessBoard& board) const;
+    bool isPawnThreatened(const Position& pos, PieceColor attacker, const ChessBoard& board) const;
+    bool isKingThreatened(const Position& pos, PieceColor attacker, const ChessBoard& board) const;
+    void addCastlingMoves(const Position& pos, PieceColor color, std::vector<Position>& moves) const;
+    void addEnPassantMoves(const Position& pos, PieceColor color, std::vector<Position>& moves) const;
+    bool isThreefoldRepetition() const;
+    std::string generatePositionKey() const;
+    std::string generatePositionKey(const ChessBoard& board) const;
+    static Position stringToPosition(const std::string& str);
+    std::string positionToString(const Position& pos) const;
+
     GameResult gameResult_;
     bool drawOffered_;
     PieceColor drawOfferingColor_;

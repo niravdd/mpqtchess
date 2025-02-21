@@ -1,11 +1,11 @@
 // src/network/ChessClient.cpp
 #include "ChessClient.h"
-#include <QDataStream>
-#include <QTimer>
+#include <QtCore/QDataStream>
+#include <QtCore/QTimer>
 
 ChessClient::ChessClient(QObject* parent)
     : QObject(parent)
-    , playerColor_(PieceColor::None)
+    , playerColor_(PieceColor::White)
     , gameInProgress_(false)
     , localGame_(std::make_unique<ChessGame>())
     , myTurn_(false)
@@ -18,8 +18,9 @@ ChessClient::ChessClient(QObject* parent)
             this, &ChessClient::handleDisconnected);
     connect(&socket_, &QTcpSocket::readyRead,
             this, &ChessClient::handleReadyRead);
-    connect(&socket_, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error),
-            this, &ChessClient::handleError);
+/// connect(&socket_, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error), this, &ChessClient::handleError);
+    connect(&socket_, &QTcpSocket::errorOccurred,
+        this, &ChessClient::handleError);
 
     // Set up keep-alive timer
     QTimer* keepAliveTimer = new QTimer(this);
@@ -145,7 +146,7 @@ void ChessClient::handleDisconnected()
     emit disconnected();
 }
 
-void ChessClient::handleError(QAbstractSocket::SocketError socketError)
+void ChessClient::handleError([[maybe_unused]] QAbstractSocket::SocketError socketError)
 {
     QString errorMessage = socket_.errorString();
     emit connectionError(errorMessage);
@@ -243,6 +244,11 @@ void ChessClient::sendMessage(const NetworkMessage& msg)
 void ChessClient::processMessage(const NetworkMessage& msg)
 {
     switch (msg.type) {
+        case MessageType::CONNECT_REQUEST:
+            // Client shouldn't receive this - server-bound message
+            handleProtocolError("Unexpected CONNECT_REQUEST received");
+            break;
+
         case MessageType::CONNECT_RESPONSE:
             processConnectResponse(msg);
             break;
@@ -252,12 +258,21 @@ void ChessClient::processMessage(const NetworkMessage& msg)
             break;
             
         case MessageType::MOVE:
+            processMoveMessage(msg);
+            break;
+
         case MessageType::MOVE_RESPONSE:
             processMoveMessage(msg);
             break;
             
         case MessageType::DRAW_OFFER:
+            processPlayerActionMessage(msg);
+            break;
+
         case MessageType::DRAW_RESPONSE:
+            processPlayerActionMessage(msg);
+            break;
+
         case MessageType::RESIGN:
             processPlayerActionMessage(msg);
             break;
@@ -272,6 +287,11 @@ void ChessClient::processMessage(const NetworkMessage& msg)
             
         case MessageType::KEEPALIVE:
             // Just ignore keepalive messages
+            break;
+
+        case MessageType::GAME_END:
+            // Process game end notification
+            processGameStateMessage(msg);
             break;
             
         default:
@@ -363,6 +383,26 @@ void ChessClient::processMoveMessage(const NetworkMessage& msg)
 void ChessClient::processPlayerActionMessage(const NetworkMessage& msg)
 {
     switch (msg.type) {
+        case MessageType::CONNECT_REQUEST:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::CONNECT_RESPONSE:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::GAME_STATE:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::MOVE:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::MOVE_RESPONSE:
+            handleProtocolError("Unexpected message type");
+            break;
+            
         case MessageType::DRAW_OFFER:
             drawPending_ = true;
             emit drawOffered();
@@ -384,6 +424,26 @@ void ChessClient::processPlayerActionMessage(const NetworkMessage& msg)
             emit playerResigned(playerColor_ == PieceColor::White ? 
                               PieceColor::Black : PieceColor::White);
             emit gameEnded("Resignation");
+            break;
+            
+        case MessageType::CHAT:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::ERROR:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::KEEPALIVE:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        case MessageType::GAME_END:
+            handleProtocolError("Unexpected message type");
+            break;
+            
+        default:
+            handleProtocolError("Unknown message type");
             break;
     }
 }

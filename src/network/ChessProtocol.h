@@ -1,6 +1,6 @@
 // src/network/ChessProtocol.h
 #pragma once
-#include <QDataStream>
+#include <QtCore/QDataStream>
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
 
@@ -15,6 +15,7 @@ enum class MessageType {
     RESIGN,
     CHAT,
     ERROR,
+    GAME_END,
     KEEPALIVE
 };
 
@@ -32,6 +33,7 @@ struct NetworkMessage {
     MoveData moveData;
 };
 
+/*
 // Serialization operators
 inline QDataStream& operator<<(QDataStream& stream, const Position& pos) {
     return stream << pos.row << pos.col;
@@ -40,6 +42,7 @@ inline QDataStream& operator<<(QDataStream& stream, const Position& pos) {
 inline QDataStream& operator>>(QDataStream& stream, Position& pos) {
     return stream >> pos.row >> pos.col;
 }
+*/
 
 inline QDataStream& operator<<(QDataStream& stream, const MoveData& moveData) {
     return stream << moveData.from << moveData.to 

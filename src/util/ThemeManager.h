@@ -2,7 +2,7 @@
 #pragma once
 #include <QObject>
 #include <QHash>
-#include <QColor>
+#include <QtGui/QColor>
 #include <QJsonObject>
 
 class ThemeManager : public QObject {

@@ -1,9 +1,9 @@
 // src/gui/MoveHistoryWidget.h
 #pragma once
 #include "../core/Position.h"
-#include <QWidget>
-#include <QTextEdit>
-#include <QString>
+#include <QtWidgets/QWidget>
+#include <QtWidgets/QTextEdit>
+#include <QtCore/QString>
 
 class MoveHistoryWidget : public QWidget {
     Q_OBJECT

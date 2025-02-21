@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     }
 
     // Create and start the server
-    ChessServer server;
+    ChessNetworkServer server;
     if (!server.start(port)) {
         std::cerr << "Failed to start server on port " << port << std::endl;
         return 1;

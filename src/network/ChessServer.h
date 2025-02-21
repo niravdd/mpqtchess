@@ -34,8 +34,8 @@ private:
     std::array<QTcpSocket*, 2> clients_;
     std::unique_ptr<ChessGame> game_;
     
-    void sendMessage(QTcpSocket* client, const ChessMessage& msg);
-    void broadcastMessage(const ChessMessage& msg);
-    void processMessage(QTcpSocket* sender, const ChessMessage& msg);
+    void sendMessage(QTcpSocket* client, const NetworkMessage& msg);
+    void broadcastMessage(const NetworkMessage& msg);
+    void processMessage(QTcpSocket* sender, const NetworkMessage& msg);
     void cleanupClient(QTcpSocket* client);
 };

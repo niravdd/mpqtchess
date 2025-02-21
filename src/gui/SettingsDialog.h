@@ -1,9 +1,9 @@
 // src/gui/SettingsDialog.h
 #pragma once
-#include <QDialog>
-#include <QComboBox>
-#include <QSpinBox>
-#include <QCheckBox>
+#include <QtWidgets/QDialog>
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QSpinBox>
+#include <QtWidgets/QCheckBox>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT

@@ -1,6 +1,6 @@
 // src/gui/ChessPieceItem.cpp
 #include "ChessPieceItem.h"
-#include <QPixmap>
+#include <QtGui/QPixmap>
 
 ChessPieceItem::ChessPieceItem(std::shared_ptr<ChessPiece> piece, QGraphicsItem* parent)
     : QGraphicsPixmapItem(parent)

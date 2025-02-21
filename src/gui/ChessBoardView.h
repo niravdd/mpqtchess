@@ -1,7 +1,7 @@
 // src/gui/ChessBoardView.h
 #pragma once
-#include <QGraphicsView>
-#include <QGraphicsScene>
+#include <QtWidgets/QGraphicsView>
+#include <QtWidgets/QGraphicsScene>
 #include "ChessPieceItem.h"
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
@@ -12,6 +12,14 @@ class ChessBoardView : public QGraphicsView {
 public:
     explicit ChessBoardView(QWidget* parent = nullptr);
     void updateTheme();
+    void resetGame();
+    bool connectToServer(const QString& address, quint16 port);
+    bool saveGame(const QString& fileName);
+    bool loadGame(const QString& fileName);
+    ChessGame* getGame() const { return game_.get(); }
+    void applySettings();
+    void setTheme(const QString& theme);
+    QString getCurrentTheme() const;
 
 signals:
     void moveCompleted(const QString& move);

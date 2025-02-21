@@ -2,6 +2,7 @@
 #pragma once
 #include <string>
 #include <QString>
+#include <QtCore/QPoint>
 #include <QDataStream>
 
 class Position {
@@ -16,6 +17,12 @@ public:
     // Copy constructor and assignment operator
     Position(const Position& other) = default;
     Position& operator=(const Position& other) = default;
+
+    // Add conversion constructor from QPoint
+    Position(const QPoint& point) : row(point.y()), col(point.x()) {}
+
+    // Add conversion operator to QPoint
+    operator QPoint() const { return QPoint(col, row); }
     
     // Comparison operators
     bool operator==(const Position& other) const {

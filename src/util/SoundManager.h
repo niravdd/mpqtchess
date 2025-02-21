@@ -1,9 +1,9 @@
 // src/util/SoundManager.h
 #pragma once
-#include <QObject>
-#include <QMediaPlayer>
-#include <QAudioOutput>
-#include <QHash>
+#include <QtCore/QObject>              // QObject is core functionality
+#include <QtMultimedia/QMediaPlayer>   // QMediaPlayer is multimedia
+#include <QtMultimedia/QAudioOutput>   // QAudioOutput is multimedia
+#include <QtCore/QHash>                // QHash is core functionality
 
 class SoundManager : public QObject {
     Q_OBJECT

@@ -161,207 +161,203 @@ bool ChessGame::isValidMove(const Position& from, const Position& to,
     PieceColor playerColor) const
 {
 // Check position bounds
-if (!isValidPosition(from) || !isValidPosition(to)) {
-return false;
-}
+    if (!board_->isValidPosition(from) || !board_->isValidPosition(to)) {
+        return false;
+    }
 
 // Check if source piece exists and belongs to the player
 auto piece = board_->getPieceAt(from);
 if (!piece || piece->getColor() != playerColor) {
-return false;
+    return false;
 }
 
 // Check if target square contains player's own piece
 auto targetPiece = board_->getPieceAt(to);
 if (targetPiece && targetPiece->getColor() == playerColor) {
-return false;
+    return false;
 }
 
 // Handle special moves
 if (piece->getType() == PieceType::King && abs(from.col - to.col) == 2) {
-return isValidCastling(from, to, playerColor);
+    return isValidCastling(from, to, playerColor);
 }
 
 if (piece->getType() == PieceType::Pawn) {
-if (from.col != to.col && !targetPiece) {
-return isValidEnPassant(from, to, playerColor);
-}
-}
-
-// Check if the move is in the piece's possible moves
-auto possibleMoves = board_->getPossibleMoves(from);
-if (std::find(possibleMoves.begin(), possibleMoves.end(), to) == possibleMoves.end()) {
-return false;
+    if (from.col != to.col && !targetPiece) {
+        return isValidEnPassant(from, to, playerColor);
+    }
 }
 
-// Check if move would leave or put the king in check
-if (wouldBeInCheck(from, to, playerColor)) {
-return false;
+    // Check if the move is in the piece's possible moves
+    auto possibleMoves = board_->getPossibleMoves(from);
+    if (std::find(possibleMoves.begin(), possibleMoves.end(), to) == possibleMoves.end()) {
+        return false;
+    }
+
+    // Check if move would leave or put the king in check
+    if (wouldBeInCheck(from, to, playerColor)) {
+        return false;
+    }
+
+    return true;
 }
 
-return true;
-}
-
-bool ChessGame::isValidCastling(const Position& from, const Position& to, 
-        PieceColor playerColor) const
+bool ChessGame::isValidCastling(const Position& from, const Position& to, PieceColor playerColor) const
 {
-auto king = board_->getPieceAt(from);
-if (!king || king->getType() != PieceType::King || king->hasMoved()) {
-return false;
-}
+    auto king = board_->getPieceAt(from);
+    if (!king || king->getType() != PieceType::King || king->hasMoved()) {
+        return false;
+    }
 
-// Check if king is in check
-if (isInCheck(playerColor)) {
-return false;
-}
+    // Check if king is in check
+    if (isInCheck(playerColor)) {
+        return false;
+    }
 
-int row = from.row;
-bool isKingside = (to.col > from.col);
+    int row = from.row;
+    bool isKingside = (to.col > from.col);
 
-// Check rook
-Position rookPos(row, isKingside ? 7 : 0);
-auto rook = board_->getPieceAt(rookPos);
-if (!rook || rook->getType() != PieceType::Rook || rook->hasMoved()) {
-return false;
-}
+    // Check rook
+    Position rookPos(row, isKingside ? 7 : 0);
+    auto rook = board_->getPieceAt(rookPos);
+    if (!rook || rook->getType() != PieceType::Rook || rook->hasMoved()) {
+        return false;
+    }
 
-// Check if path is clear
-int startCol = from.col;
-int endCol = isKingside ? 7 : 0;
-int step = isKingside ? 1 : -1;
+    // Check if path is clear
+    int startCol = from.col;
+    int endCol = isKingside ? 7 : 0;
+    int step = isKingside ? 1 : -1;
 
-for (int col = startCol + step; col != endCol; col += step) {
-if (board_->getPieceAt(Position(row, col))) {
-return false;
-}
-}
+    for (int col = startCol + step; col != endCol; col += step) {
+        if (board_->getPieceAt(Position(row, col))) {
+            return false;
+    }
+    }
 
-// Check if squares king moves through are under attack
-for (int col = startCol; col != to.col; col += step) {
-if (isSquareUnderAttack(Position(row, col), playerColor)) {
-return false;
-}
-}
+    // Check if squares king moves through are under attack
+    for (int col = startCol; col != to.col; col += step) {
+        if (isSquareUnderAttack(Position(row, col), playerColor)) {
+            return false;
+        }
+    }
 
-return true;
+    return true;
 }
 
 bool ChessGame::isValidEnPassant(const Position& from, const Position& to, 
          PieceColor playerColor) const
 {
-if (!lastMove_.isValid()) {
-return false;
-}
+    if (!lastMove_.isValid()) {
+        return false;
+    }
 
-auto pawn = board_->getPieceAt(from);
-if (!pawn || pawn->getType() != PieceType::Pawn) {
-return false;
-}
+    auto pawn = board_->getPieceAt(from);
+    if (!pawn || pawn->getType() != PieceType::Pawn) {
+        return false;
+    }
 
-// Check if last move was a pawn double move
-auto lastPawn = board_->getPieceAt(Position(from.row, to.col));
-if (!lastPawn || lastPawn->getType() != PieceType::Pawn ||
-lastPawn->getColor() == playerColor) {
-return false;
-}
+    // Check if last move was a pawn double move
+    auto lastPawn = board_->getPieceAt(Position(from.row, to.col));
+    if (!lastPawn || lastPawn->getType() != PieceType::Pawn ||
+        lastPawn->getColor() == playerColor) {
+        return false;
+    }
 
-// Check if last move was a double pawn advance
-if (lastMove_.from.col != to.col ||
-abs(lastMove_.from.row - lastMove_.to.row) != 2 ||
-lastMove_.to.row != from.row) {
-return false;
-}
+    // Check if last move was a double pawn advance
+    if (lastMove_.from.col != to.col || abs(lastMove_.from.row - lastMove_.to.row) != 2 || lastMove_.to.row != from.row) {
+        return false;
+    }
 
-return true;
+    return true;
 }
 
 bool ChessGame::isSquareUnderAttack(const Position& pos, PieceColor defendingColor) const
 {
-PieceColor attackingColor = (defendingColor == PieceColor::White) ? 
-         PieceColor::Black : PieceColor::White;
+    PieceColor attackingColor = (defendingColor == PieceColor::White) ? 
+            PieceColor::Black : PieceColor::White;
 
-// Check attacks from each piece type
-return isDiagonallyThreatened(pos, attackingColor, *board_) ||
-isStraightThreatened(pos, attackingColor, *board_) ||
-isKnightThreatened(pos, attackingColor, *board_) ||
-isPawnThreatened(pos, attackingColor, *board_) ||
-isKingThreatened(pos, attackingColor, *board_);
+    // Check attacks from each piece type
+    return  isDiagonallyThreatened(pos, attackingColor, *board_) ||
+            isStraightThreatened(pos, attackingColor, *board_) ||
+            isKnightThreatened(pos, attackingColor, *board_) ||
+            isPawnThreatened(pos, attackingColor, *board_) ||
+            isKingThreatened(pos, attackingColor, *board_);
 }
 
 std::vector<Position> ChessGame::getLegalMoves(const Position& pos) const
 {
-std::vector<Position> legalMoves;
-auto piece = board_->getPieceAt(pos);
+    std::vector<Position> legalMoves;
+    auto piece = board_->getPieceAt(pos);
 
-if (!piece) {
-return legalMoves;
-}
+    if (!piece) {
+        return legalMoves;
+    }
 
-// Get all possible moves for this piece
-auto possibleMoves = board_->getPossibleMoves(pos);
+    // Get all possible moves for this piece
+    auto possibleMoves = board_->getPossibleMoves(pos);
 
-// Filter out moves that would leave the king in check
-for (const auto& move : possibleMoves) {
-if (!wouldBeInCheck(pos, move, piece->getColor())) {
-legalMoves.push_back(move);
-}
-}
+    // Filter out moves that would leave the king in check
+    for (const auto& move : possibleMoves) {
+        if (!wouldBeInCheck(pos, move, piece->getColor())) {
+            legalMoves.push_back(move);
+        }
+    }
 
-// Add castling moves for king if applicable
-if (piece->getType() == PieceType::King && !piece->hasMoved()) {
-addCastlingMoves(pos, piece->getColor(), legalMoves);
-}
+    // Add castling moves for king if applicable
+    if (piece->getType() == PieceType::King && !piece->hasMoved()) {
+        addCastlingMoves(pos, piece->getColor(), legalMoves);
+    }
 
-// Add en passant moves for pawns if applicable
-if (piece->getType() == PieceType::Pawn) {
-addEnPassantMoves(pos, piece->getColor(), legalMoves);
-}
+    // Add en passant moves for pawns if applicable
+    if (piece->getType() == PieceType::Pawn) {
+        addEnPassantMoves(pos, piece->getColor(), legalMoves);
+    }
 
-return legalMoves;
+    return legalMoves;
 }
 
 void ChessGame::addCastlingMoves(const Position& kingPos, PieceColor color,
           std::vector<Position>& moves) const
 {
-if (isInCheck(color)) {
-return;
-}
+    if (isInCheck(color)) {
+        return;
+    }
 
-int row = (color == PieceColor::White) ? 7 : 0;
+    int row = (color == PieceColor::White) ? 7 : 0;
 
-// Kingside castling
-if (isValidCastling(kingPos, Position(row, 6), color)) {
-moves.push_back(Position(row, 6));
-}
+    // Kingside castling
+    if (isValidCastling(kingPos, Position(row, 6), color)) {
+        moves.push_back(Position(row, 6));
+    }
 
-// Queenside castling
-if (isValidCastling(kingPos, Position(row, 2), color)) {
-moves.push_back(Position(row, 2));
-}
+    // Queenside castling
+    if (isValidCastling(kingPos, Position(row, 2), color)) {
+        moves.push_back(Position(row, 2));
+    }
 }
 
 void ChessGame::addEnPassantMoves(const Position& pawnPos, PieceColor color,
            std::vector<Position>& moves) const
 {
-if (!lastMove_.isValid() || 
-lastMove_.piece != PieceType::Pawn || 
-abs(lastMove_.from.row - lastMove_.to.row) != 2) {
-return;
-}
+    if (!lastMove_.isValid() || 
+        lastMove_.piece != PieceType::Pawn || 
+        abs(lastMove_.from.row - lastMove_.to.row) != 2) {
+        return;
+    }
 
-int captureRow = (color == PieceColor::White) ? 2 : 5;
-if (pawnPos.row != captureRow) {
-return;
-}
+    int captureRow = (color == PieceColor::White) ? 2 : 5;
+    if (pawnPos.row != captureRow) {
+        return;
+    }
 
-// Check adjacent columns
-for (int colOffset : {-1, 1}) {
-Position targetPos(pawnPos.row + (color == PieceColor::White ? -1 : 1),
-   lastMove_.to.col);
-if (isValidEnPassant(pawnPos, targetPos, color)) {
-moves.push_back(targetPos);
-}
-}
+    // Check adjacent columns
+    for (int colOffset : {-1, 1}) {
+        Position targetPos(pawnPos.row + (color == PieceColor::White ? -1 : 1), pawnPos.col + colOffset);
+        moves.push_back(targetPos);
+        if (isValidEnPassant(pawnPos, targetPos, color)) {
+        }
+    }
 }
 
 bool ChessGame::isInCheck(PieceColor color) const
@@ -753,9 +749,11 @@ const std::vector<MoveRecord>& ChessGame::getMoveHistory() const
     return moveHistory_;
 }
 
-std::string ChessGame::positionToString(const Position& pos)
+std::string ChessGame::positionToString(const Position& pos) const
 {
-    return std::string(1, 'a' + pos.col) + std::string(1, '8' - pos.row);
+    char file = 'a' + pos.col;
+    char rank = '8' - pos.row;
+    return std::string{file} + rank;
 }
 
 Position ChessGame::stringToPosition(const std::string& str)

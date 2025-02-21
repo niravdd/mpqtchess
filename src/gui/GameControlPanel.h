@@ -1,12 +1,12 @@
 // src/gui/GameControlPanel.h
 #pragma once
 #include "../core/Position.h"
-#include <QWidget>
-#include <QLCDNumber>
-#include <QPushButton>
-#include <QLabel>
-#include <QTimer>
-#include <QMediaPlayer>
+#include <QtWidgets/QWidget>
+#include <QtWidgets/QLCDNumber>
+#include <QtWidgets/QPushButton>  // QPushButton is a widget
+#include <QtWidgets/QLabel>       // QLabel is a widget
+#include <QtCore/QTimer>         // QTimer is a core functionality
+#include <QtMultimedia/QMediaPlayer>  // QMediaPlayer is in multimedia module
 
 class GameControlPanel : public QWidget {
     Q_OBJECT

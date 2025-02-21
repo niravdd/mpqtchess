@@ -1,10 +1,11 @@
 // src/gui/ChessPieceItem.h
 #pragma once
-#include <QSvgRenderer>
-#include <QPainter>
-#include <QGraphicsPixmapItem>
+#include <QtSvg/QSvgRenderer>
+#include <QtGui/QPainter>
+#include <QtWidgets/QGraphicsPixmapItem>
 #include "../core/ChessPiece.h"
 #include "../core/Position.h"
+#include "../util/Settings.h"
 
 class ChessPieceItem : public QGraphicsPixmapItem {
 public:

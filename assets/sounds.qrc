@@ -1,13 +1,13 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/sounds">
-        <file>sounds/move.wav</file>
-        <file>sounds/capture.wav</file>
-        <file>sounds/check.wav</file>
-        <file>sounds/checkmate.wav</file>
-        <file>sounds/start.wav</file>
-        <file>sounds/draw_offer.wav</file>
-        <file>sounds/timeout.wav</file>
-        <file>sounds/resign.wav</file>
+        <file>move.wav</file>
+        <file>capture.wav</file>
+        <file>check.wav</file>
+        <file>checkmate.wav</file>
+        <file>start.wav</file>
+        <file>draw_offer.wav</file>
+        <file>timeout.wav</file>
+        <file>resign.wav</file>
     </qresource>
 </RCC>
