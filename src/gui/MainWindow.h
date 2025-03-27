@@ -35,6 +35,7 @@ private slots:
     void saveGame();
     void loadGame();
     void showSettings();
+    void about();
     void handleThemeChanged(const QString& theme);
 
 private:

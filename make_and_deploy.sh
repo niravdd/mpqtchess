@@ -5,12 +5,12 @@ mkdir build
 cd build
 
 # Configure with CMake
-# cmake -DCMAKE_PREFIX_PATH=/Users/niravdd/Qt/6.5.3/macos ..
-cmake ..
+cmake -DCMAKE_PREFIX_PATH=/Users/niravdd/Qt/6.5.3/macos ..
+# cmake ..
 
 # Build
-# cmake --build . -j 8
-cmake --build .
+cmake --build . -j 8
+# cmake --build .
 
 # Install (optional)
 cmake --install .
