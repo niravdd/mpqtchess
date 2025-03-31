@@ -28,7 +28,8 @@ void ChessPieceItem::updateSize(qreal squareSize)
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
     
     // Get theme scale factor
-    qreal scale = Settings::getInstance().getThemeScale(piece_->getColor());
+//  qreal scale = Settings::getInstance().getThemeScale(piece_->getColor());
+    qreal scale = ThemeManager::getInstance().getCurrentTheme().pieceScale;
     
     // Calculate scaled size and position
     qreal scaledSize = squareSize * scale;

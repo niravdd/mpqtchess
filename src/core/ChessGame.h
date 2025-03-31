@@ -59,8 +59,11 @@ public:
     bool isCheckmate(PieceColor color) const;
     bool isStalemate(PieceColor color) const;
     bool isDraw() const;
+    bool isValidPosition(const Position& pos) const;
     
     PieceColor getCurrentTurn() const { return currentTurn_; }
+    PieceColor getCurrentPlayer() const { return currentPlayer_; }
+
     const ChessBoard& getBoard() const { return *board_; }
     const std::vector<MoveRecord>& getMoveHistory() const;
     
@@ -75,6 +78,7 @@ public:
 private:
     std::unique_ptr<ChessBoard> board_;
     PieceColor currentTurn_;
+    PieceColor currentPlayer_;
     std::vector<MoveRecord> moveHistory_;
     bool gameOver_;
     int halfMoveClock_;  // For fifty-move rule
@@ -88,7 +92,6 @@ private:
     void initializeGame();
     bool handleCastling(const Position& from, const Position& to);
     bool handleEnPassant(const Position& from, const Position& to);
-    bool isValidPosition(const Position& pos) const;
     bool isValidCastling(const Position& from, const Position& to, PieceColor playerColor) const;
     bool isValidEnPassant(const Position& from, const Position& to, PieceColor playerColor) const;
     bool isSquareUnderAttack(const Position& pos, PieceColor playerColor) const;

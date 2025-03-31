@@ -6,6 +6,7 @@
 #include "../core/ChessPiece.h"
 #include "../core/Position.h"
 #include "../util/Settings.h"
+#include "../util/ThemeManager.h"
 
 class ChessPieceItem : public QGraphicsPixmapItem {
 public:

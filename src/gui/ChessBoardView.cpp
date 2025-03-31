@@ -1,5 +1,6 @@
 // src/gui/ChessBoardView.cpp
 #include "ChessBoardView.h"
+#include "../util/ThemeManager.h"
 #include <QtGui/QResizeEvent>
 #include <QtWidgets/QGraphicsDropShadowEffect>
 
@@ -130,9 +131,9 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
         QPoint fromPos = boardPositionAt(dragStartPos_);
         QPoint toPos = boardPositionAt(mapToScene(event->pos()));
         
-        if (game_->isValidMove(fromPos, toPos)) {
+        if (game_->isValidMove(fromPos, toPos, game_->getCurrentPlayer())) {
             // Attempt to make the move
-            if (game_->makeMove(fromPos, toPos)) {
+            if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
                 updateBoard();
                 emit moveCompleted(generateMoveNotation(fromPos, toPos));
                 
@@ -165,17 +166,8 @@ void ChessBoardView::highlightLegalMoves(const QPoint& pos)
     ThemeManager::getInstance().getCurrentTheme();
 
     for (const auto& move : legalMoves) {
-        highlightItems_[move.y()][move.x()]->setBrush(
+        highlightItems_[move.row][move.col]->setBrush(
             theme.colors.highlightMove);
-    }
-}
-
-void ChessBoardView::clearHighlights()
-{
-    for (int row = 0; row < 8; ++row) {
-        for (int col = 0; col < 8; ++col) {
-            highlightItems_[row][col]->setBrush(Qt::transparent);
-        }
     }
 }
 
@@ -216,4 +208,15 @@ void ChessBoardView::updateTheme()
 {
     setupBoard();
     updateBoard();
+}
+
+void ChessBoardView::clearHighlights()
+{
+    for (int row = 0; row < 8; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            if (highlightItems_[row][col]) {
+                highlightItems_[row][col]->setBrush(Qt::transparent);
+            }
+        }
+    }
 }

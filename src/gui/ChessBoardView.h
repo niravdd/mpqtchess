@@ -6,6 +6,20 @@
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
 
+// Helper function to generate chess notation (e.g., "e2-e4")
+QString generateMoveNotation(const Position& from, const Position& to) {
+    char fromFile = 'a' + from.col;
+    char toFile = 'a' + to.col;
+    int fromRank = 8 - from.row;
+    int toRank = 8 - to.row;
+    
+    return QString("%1%2-%3%4")
+        .arg(fromFile)
+        .arg(fromRank)
+        .arg(toFile)
+        .arg(toRank);
+}
+
 class ChessBoardView : public QGraphicsView {
     Q_OBJECT
 
@@ -36,6 +50,7 @@ private:
     void updateBoard();
     void highlightLegalMoves(const QPoint& pos);
     QPoint boardPositionAt(const QPointF& pos) const;
+    void clearHighlights();
     
     QGraphicsScene* scene_;
     std::unique_ptr<ChessGame> game_;

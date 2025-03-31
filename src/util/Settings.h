@@ -10,6 +10,7 @@ public:
     // Theme settings
     QString getCurrentTheme() const;
     void setCurrentTheme(const QString& theme);
+    qreal getThemeScale(PieceColor color) const;
     
     // Sound settings
     bool isSoundEnabled() const;

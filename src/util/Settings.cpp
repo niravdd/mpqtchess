@@ -87,3 +87,9 @@ void Settings::setLastPort(int port)
 {
     settings_.setValue("network/lastPort", port);
 }
+
+qreal Settings::getThemeScale(PieceColor color) const {
+    // Default implementation - return standard scale
+    // Adjust this based on your needs
+    return 1.0; // Default scale
+}
