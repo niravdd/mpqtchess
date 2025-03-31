@@ -1,12 +1,12 @@
 // src/gui/ConnectDialog.cpp
 #include "ConnectDialog.h"
 #include "../util/Settings.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QPushButton>
-#include <QRegularExpression>
-#include <QRegularExpressionValidator>
+#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QHBoxLayout>
+#include <QtWidgets/QLabel>
+#include <QtWidgets/QPushButton>
+#include <QtCore/QRegularExpression>
+#include <QtGui/QRegularExpressionValidator>
 
 ConnectDialog::ConnectDialog(QWidget* parent)
     : QDialog(parent)
@@ -27,7 +27,7 @@ void ConnectDialog::createUI()
     // IPv4 validation regex
     QRegularExpression ipRegex(
         "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}"
-        "(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\$|^localhost\$");
+        "(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\$|^localhost\\$");
     addressEdit_->setValidator(new QRegularExpressionValidator(ipRegex, this));
     addressLayout->addWidget(new QLabel(tr("Address:")));
     addressLayout->addWidget(addressEdit_);

@@ -12,6 +12,7 @@ public:
     
     QString getAddress() const;
     quint16 getPort() const;
+    void accept() override; // Override QDialog's accept() method
 
 private slots:
     void validateInput();

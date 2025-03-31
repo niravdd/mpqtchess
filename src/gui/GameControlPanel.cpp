@@ -1,9 +1,9 @@
 // src/gui/GameControlPanel.cpp
 #include "GameControlPanel.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGroupBox>
-#include <QAudioOutput>
+#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QHBoxLayout>
+#include <QtWidgets/QGroupBox>
+#include <QtMultimedia/QAudioOutput>
 
 GameControlPanel::GameControlPanel(QWidget* parent)
     : QWidget(parent)
@@ -188,4 +188,43 @@ void GameControlPanel::playSound(const QString& soundFile)
         soundPlayer_->audioOutput()->setVolume(volume_ / 100.0);
         soundPlayer_->play();
     }
+}
+
+void GameControlPanel::applySettings()
+{
+    // Get settings instance
+    Settings& settings = Settings::getInstance();
+    
+    // Update sound settings
+    bool soundEnabled = settings.getSoundEnabled();
+    soundCheckBox_->setChecked(soundEnabled);
+    
+    // Update animation settings if applicable
+    bool animationsEnabled = settings.getAnimationsEnabled();
+    animationCheckBox_->setChecked(animationsEnabled);
+    
+    // Update volume slider if present
+    if (volumeSlider_) {
+        int volume = settings.getVolume();
+        volumeSlider_->setValue(volume);
+    }
+    
+    // Update any theme-specific UI elements
+    const QString& theme = settings.getTheme();
+    
+    // If your control panel has theme-dependent visuals, update them here
+    // For example, update button styles or colors based on theme
+    
+    // Apply style sheets if needed
+    if (theme == "dark") {
+        setStyleSheet("background-color: #333; color: white;");
+    } else {
+        setStyleSheet(""); // Use default style
+    }
+    
+    // If there are other theme-specific settings to apply
+    // Add them here
+    
+    // Refresh the panel
+    update();
 }

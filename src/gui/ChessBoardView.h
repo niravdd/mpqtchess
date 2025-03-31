@@ -5,6 +5,7 @@
 #include "ChessPieceItem.h"
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
+#include "../util/Settings.h"
 
 // Helper function to generate chess notation (e.g., "e2-e4")
 QString generateMoveNotation(const Position& from, const Position& to) {
@@ -34,16 +35,29 @@ public:
     void applySettings();
     void setTheme(const QString& theme);
     QString getCurrentTheme() const;
+    void setAnimationsEnabled(bool enabled);
+    void setSoundEnabled(bool enabled);
+    void updateBoardFromGame();
 
 signals:
     void moveCompleted(const QString& move);
     void gameOver(const QString& result);
+    void statusChanged(const QString& status);
+    void themeChanged(const QString& theme);
+    void gameLoaded(ChessGame* game);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+
+private slots:
+    // Network-related slots
+    void onConnected();
+    void onDisconnected();
+    void onMessageReceived(const QByteArray& message);
+    void onNetworkError(const QString& errorMsg);
 
 private:
     void setupBoard();
@@ -57,4 +71,12 @@ private:
     ChessPieceItem* selectedPiece_;
     QPointF dragStartPos_;
     QGraphicsRectItem* highlightItems_[8][8];
+
+    QString currentTheme_;
+    bool animationsEnabled_;
+    bool soundEnabled_;
+    NetworkClient* networkClient_;
+    QPoint selectedSquare_;
+    bool gameOver_;
+    PieceColor playerColor_;
 };

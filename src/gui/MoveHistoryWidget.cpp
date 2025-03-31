@@ -1,15 +1,16 @@
 // src/gui/MoveHistoryWidget.cpp
 #include "MoveHistoryWidget.h"
-#include <QVBoxLayout>
 
 MoveHistoryWidget::MoveHistoryWidget(QWidget* parent)
     : QWidget(parent)
+    , layout_(new QVBoxLayout(this))
+    , historyText_(new QTextEdit(this))
     , moveNumber_(1)
     , isWhiteMove_(true)
 {
     QVBoxLayout* layout = new QVBoxLayout(this);
     
-    historyText_ = new QTextEdit(this);
+//  historyText_ = new QTextEdit(this);
     historyText_->setReadOnly(true);
     historyText_->setFont(QFont("Courier New", 12));
     
@@ -110,4 +111,25 @@ QString MoveHistoryWidget::getPieceSymbol(PieceType piece)
         case PieceType::Pawn:   return "";
         default:                return "?";
     }
+}
+
+MoveHistoryWidget::~MoveHistoryWidget()
+{
+    // Qt will automatically delete child widgets (historyText_)
+    // since they have this widget as their parent
+    
+    // If you've created any objects that aren't parented to this widget
+    // or aren't Qt widgets (raw pointers allocated with new), delete them here
+    
+    // For example, if you have any custom data structures:
+    // delete customData_;
+    
+    // Clean up layout if it wasn't parented properly
+    // Note: Usually Qt handles this automatically if layout_ was set as the widget's layout
+    if (layout_ && !layout_->parent()) {
+        delete layout_;
+    }
+    
+    // Note: Usually most of this cleanup is unnecessary as Qt's parent-child
+    // relationship ensures proper cleanup of child widgets
 }

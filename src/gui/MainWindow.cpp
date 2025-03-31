@@ -204,3 +204,59 @@ void MainWindow::closeEvent(QCloseEvent* event)
     saveSettings();
     event->accept();
 }
+
+MainWindow::~MainWindow()
+{
+    // Save settings on exit
+    saveSettings();
+
+    // Clean up owned widgets and objects
+    // Most Qt widgets will be automatically deleted when their parent is deleted
+    // We only need to manually delete objects that were created with 'new' and not parented
+
+    // If you have any manually allocated objects that aren't parented, delete them here
+    // For example:
+    // delete networkManager_;
+
+    // The MainWindow is the parent of most widgets, so they'll be automatically deleted
+    // We only need to explicitly delete objects that don't have the MainWindow as parent
+    
+    // No need to delete these as they have MainWindow as parent:
+    // boardView_, controlPanel_, moveHistory_, chatWidget_
+    
+    // Checking the codebase, there don't appear to be any non-parented objects 
+    // that need manual deletion in MainWindow
+}
+
+void MainWindow::handleThemeChanged(const QString& theme)
+{
+    // Apply the new theme to the chess board
+    if (boardView_) {
+        boardView_->setTheme(theme);
+    }
+
+    // Update game control panel if it has theme-dependent elements
+    if (controlPanel_) {
+        controlPanel_->applySettings();
+    }
+
+    // Update any other UI elements that might have theme-dependent styling
+    // For example, update status bar colors, menu styling, etc.
+
+    // Update move history widget if it has theme-dependent styling
+    if (moveHistory_) {
+        // Your code doesn't seem to have a direct theme update method for moveHistory_
+        // but if you add one in the future, call it here
+    }
+
+    // Save the theme in settings
+    Settings& settings = Settings::getInstance();
+    settings.setCurrentTheme(theme);
+    settings.saveSettings();
+
+    // Update window title to reflect theme if needed
+    setWindowTitle(QString("Chess - %1").arg(theme));
+    
+    // Refresh the view
+    update();
+}

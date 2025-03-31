@@ -6,6 +6,10 @@
 #include <QtWidgets/QGroupBox>       // Container widget
 #include <QtWidgets/QLabel>          // Label widget
 #include <QtWidgets/QPushButton>     // Button widget
+#include <QtWidgets/QGraphicsItem>
+#include <QtCore/QFile>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 
 SettingsDialog::SettingsDialog(QWidget* parent)
     : QDialog(parent)

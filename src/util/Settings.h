@@ -1,5 +1,6 @@
 // src/util/Settings.h
 #pragma once
+#include "../core/ChessPiece.h"
 #include <QString>
 #include <QSettings>
 
@@ -30,13 +31,19 @@ public:
     int getLastPort() const;
     void setLastPort(int port);
 
+    // Animation settings
+    bool getAnimationsEnabled() const; 
+    void setAnimationsEnabled(bool enabled);
+
+    // Save/Load
+    void saveSettings();
+    void loadSettings(); // Load settings from storage
+
 private:
     Settings();
     ~Settings() = default;
     Settings(const Settings&) = delete;
     Settings& operator=(const Settings&) = delete;
-    
-    QSettings settings_;
     
     // Default values
     static const QString DEFAULT_THEME;
@@ -44,4 +51,27 @@ private:
     static const int DEFAULT_TIME_CONTROL;
     static const QString DEFAULT_SERVER;
     static const int DEFAULT_PORT;
+
+    // Theme settings
+    QString theme_;
+    qreal whiteScale_;
+    qreal blackScale_;
+    
+    // Sound settings
+    bool soundEnabled_;
+    int volume_;
+    
+    // Animation settings
+    bool animationsEnabled_;
+
+    // Time Control settings
+    int timeControl_;
+    bool autoQueen_;
+    
+    // Network settings
+    QString lastServer_;
+    int lastPort_;    
+
+    // QSettings object to handle persistent storage
+    QSettings settings_;
 };

@@ -1,9 +1,13 @@
 // src/gui/SettingsDialog.h
 #pragma once
 #include <QtWidgets/QDialog>
+#include <QtWidgets/QGraphicsScene>
+#include <QtWidgets/QGraphicsView>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QSpinBox>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QGraphicsRectItem>
+#include <QtWidgets/QGraphicsPixmapItem>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
