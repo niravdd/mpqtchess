@@ -1,9 +1,0 @@
-<!-- assets/themes/themes.qrc -->
-<!DOCTYPE RCC>
-<RCC version="1.0">
-    <qresource prefix="/themes">
-        <file>classic.json</file>
-        <file>modern.json</file>
-        <file>minimalist.json</file>
-    </qresource>
-</RCC>
