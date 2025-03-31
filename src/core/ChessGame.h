@@ -6,6 +6,14 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <QJsonObject>
+
+namespace ChessCore {
+
+enum class PieceColor {
+    White,
+    Black
+};
 
 enum class GameResult {
     InProgress,
@@ -74,6 +82,9 @@ public:
     void offerDraw(PieceColor color);
     void acceptDraw();
     void declineDraw();
+
+    QJsonObject toJson() const;
+    bool fromJson(const QJsonObject& json);
     
 private:
     std::unique_ptr<ChessBoard> board_;

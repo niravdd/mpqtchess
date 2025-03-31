@@ -3,10 +3,8 @@
 #include "../util/ThemeManager.h"
 #include <QtGui/QResizeEvent>
 #include <QtWidgets/QGraphicsDropShadowEffect>
-#include <QJsonDocument>
-#include <QJsonObject>
 
-ChessBoardView::ChessBoardView(QWidget* parent)
+ChessBoardView::ChessBoardView(QWidget* parent, NetworkClient* networkClient)
     : QGraphicsView(parent)
     , scene_(new QGraphicsScene(this))
     , game_(std::make_unique<ChessGame>())
@@ -14,7 +12,7 @@ ChessBoardView::ChessBoardView(QWidget* parent)
     , currentTheme_(Settings::getInstance().getCurrentTheme())
     , animationsEnabled_(Settings::getInstance().getAnimationsEnabled())
     , soundEnabled_(Settings::getInstance().isSoundEnabled())
-    , networkClient_(nullptr)
+    , networkClient_(networkClient)  // Use the passed parameter
     , selectedSquare_(-1, -1)
     , gameOver_(false)
     , playerColor_(PieceColor::White)
@@ -28,6 +26,11 @@ ChessBoardView::ChessBoardView(QWidget* parent)
     // Create board squares and highlight items
     setupBoard();
     updateBoard();
+
+    if (networkClient_) {
+        connect(networkClient_, &NetworkClient::moveReceived, 
+                this, &ChessBoardView::receiveNetworkMove);
+    }
 }
 
 void ChessBoardView::setupBoard()
@@ -147,7 +150,16 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
             // Attempt to make the move
             if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
                 updateBoard();
-                emit moveCompleted(generateMoveNotation(fromPos, toPos));
+                QString moveNotation = generateMoveNotation(fromPos, toPos);
+                emit moveCompleted(moveNotation);
+                
+                // Send move over network if connected
+                if (networkClient_ && networkClient_->isConnected()) {
+                    // Convert board positions to algebraic notation for network
+                    QString fromSquare = positionToAlgebraic(fromPos);
+                    QString toSquare = positionToAlgebraic(toPos);
+                    networkClient_->sendMove(fromSquare, toSquare);
+                }
                 
                 // Check game state
                 if (game_->isCheckmate(game_->getCurrentTurn())) {
@@ -166,6 +178,57 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
         selectedPiece_->setZValue(1);
         selectedPiece_ = nullptr;
         clearHighlights();
+    }
+}
+
+QString ChessBoardView::positionToAlgebraic(const QPoint& pos) const
+{
+    if (pos.x() < 0 || pos.x() > 7 || pos.y() < 0 || pos.y() > 7)
+        return "";
+        
+    char file = 'a' + pos.x();
+    char rank = '8' - pos.y();  // Assuming 0,0 is top-left (a8)
+    
+    return QString(file) + QString(rank);
+}
+
+QPoint ChessBoardView::algebraicToPosition(const QString& algebraic) const
+{
+    if (algebraic.length() != 2)
+        return QPoint(-1, -1);
+        
+    int x = algebraic[0].toLatin1() - 'a';
+    int y = '8' - algebraic[1].toLatin1();  // Assuming 0,0 is top-left (a8)
+    
+    if (x < 0 || x > 7 || y < 0 || y > 7)
+        return QPoint(-1, -1);
+        
+    return QPoint(x, y);
+}
+
+void ChessBoardView::receiveNetworkMove(const QString& fromSquare, const QString& toSquare)
+{
+    QPoint fromPos = algebraicToPosition(fromSquare);
+    QPoint toPos = algebraicToPosition(toSquare);
+    
+    if (fromPos.x() < 0 || toPos.x() < 0)
+        return;  // Invalid positions
+        
+    // Execute the move from the network
+    if (game_->isValidMove(fromPos, toPos, game_->getCurrentPlayer())) {
+        if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
+            updateBoard();
+            emit moveCompleted(generateMoveNotation(fromPos, toPos));
+            
+            // Check game state
+            if (game_->isCheckmate(game_->getCurrentTurn())) {
+                emit gameOver(tr("Checkmate! %1 wins!")
+                    .arg(game_->getCurrentTurn() == PieceColor::White ? 
+                         "Black" : "White"));
+            } else if (game_->isStalemate(game_->getCurrentTurn())) {
+                emit gameOver(tr("Stalemate! Game is drawn."));
+            }
+        }
     }
 }
 
@@ -294,7 +357,7 @@ bool ChessBoardView::connectToServer(const QString& host, quint16 port)
         // Connect signals from network client
         connect(networkClient_, &NetworkClient::connected, this, &ChessBoardView::onConnected);
         connect(networkClient_, &NetworkClient::disconnected, this, &ChessBoardView::onDisconnected);
-        connect(networkClient_, &NetworkClient::messageReceived, this, &ChessBoardView::onMessageReceived);
+        connect(networkClient_, &NetworkClient::moveReceived, this, &ChessBoardView::onMessageReceived);
         connect(networkClient_, &NetworkClient::errorOccurred, this, &ChessBoardView::onNetworkError);
     }
     
@@ -531,4 +594,20 @@ void ChessBoardView::onMessageReceived(const QByteArray& message)
 void ChessBoardView::onNetworkError(const QString& errorMsg)
 {
     emit statusChanged(tr("Network error: %1").arg(errorMsg));
+}
+
+void ChessBoardView::setNetworkClient(NetworkClient* client)
+{
+    // Disconnect old client if exists
+    if (networkClient_) {
+        disconnect(networkClient_, nullptr, this, nullptr);
+    }
+    
+    networkClient_ = client;
+    
+    // Connect to new client
+    if (networkClient_) {
+        connect(networkClient_, &NetworkClient::moveReceived,
+                this, &ChessBoardView::receiveNetworkMove);
+    }
 }

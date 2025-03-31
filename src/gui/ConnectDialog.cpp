@@ -82,12 +82,12 @@ void ConnectDialog::saveSettings()
     settings.setLastPort(portSpinner_->value());
 }
 
-QString ConnectDialog::getAddress() const
+QString ConnectDialog::getServerAddress() const
 {
     return addressEdit_->text();
 }
 
-quint16 ConnectDialog::getPort() const
+quint16 ConnectDialog::getServerPort() const
 {
     return static_cast<quint16>(portSpinner_->value());
 }

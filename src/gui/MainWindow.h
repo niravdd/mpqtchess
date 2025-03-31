@@ -37,6 +37,9 @@ private slots:
     void showSettings();
     void about();
     void handleThemeChanged(const QString& theme);
+    void onNetworkConnected();
+    void onNetworkDisconnected();
+    void onNetworkError(const QString& error);
 
 private:
     void createMenus();

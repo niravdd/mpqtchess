@@ -2,10 +2,15 @@
 #pragma once
 #include <QtWidgets/QGraphicsView>
 #include <QtWidgets/QGraphicsScene>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include "ChessPieceItem.h"
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
 #include "../util/Settings.h"
+#include "../network/NetworkClient.h"
 
 // Helper function to generate chess notation (e.g., "e2-e4")
 QString generateMoveNotation(const Position& from, const Position& to) {
@@ -25,7 +30,8 @@ class ChessBoardView : public QGraphicsView {
     Q_OBJECT
 
 public:
-    explicit ChessBoardView(QWidget* parent = nullptr);
+    explicit ChessBoardView(QWidget* parent = nullptr, NetworkClient* networkClient = nullptr);
+
     void updateTheme();
     void resetGame();
     bool connectToServer(const QString& address, quint16 port);
@@ -38,6 +44,10 @@ public:
     void setAnimationsEnabled(bool enabled);
     void setSoundEnabled(bool enabled);
     void updateBoardFromGame();
+    void receiveNetworkMove(const QString& fromSquare, const QString& toSquare);
+
+    void setNetworkClient(NetworkClient* client);
+    NetworkClient* getNetworkClient() const { return networkClient_; }
 
 signals:
     void moveCompleted(const QString& move);
@@ -65,6 +75,8 @@ private:
     void highlightLegalMoves(const QPoint& pos);
     QPoint boardPositionAt(const QPointF& pos) const;
     void clearHighlights();
+    QString positionToAlgebraic(const QPoint& pos) const;
+    QPoint algebraicToPosition(const QString& algebraic) const;
     
     QGraphicsScene* scene_;
     std::unique_ptr<ChessGame> game_;

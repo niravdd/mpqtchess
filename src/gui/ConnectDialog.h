@@ -10,8 +10,8 @@ class ConnectDialog : public QDialog {
 public:
     explicit ConnectDialog(QWidget* parent = nullptr);
     
-    QString getAddress() const;
-    quint16 getPort() const;
+    QString getServerAddress() const;
+    quint16 getServerPort() const;
     void accept() override; // Override QDialog's accept() method
 
 private slots:

@@ -1,6 +1,7 @@
 // src/gui/MainWindow.cpp
 #include "MainWindow.h"
 #include "../util/ThemeManager.h"
+#include "ConnectDialog.h"
 #include <QtWidgets/QApplication>   // QApplication is main widget application class
 #include <QtWidgets/QMenuBar>       // QMenuBar is a widget
 #include <QtWidgets/QMessageBox>    // QMessageBox is a widget
@@ -11,10 +12,14 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(tr("Chess Game"));
+    setWindowTitle(tr("Multiplayer Chess"));
     
-    // Create central widget
+    // Create network client
+    NetworkClient* networkClient = new NetworkClient(this);
+    
+    // Create central widget with network client
     boardView_ = new ChessBoardView(this);
+    boardView_->setNetworkClient(networkClient);
     setCentralWidget(boardView_);
     
     // Create dock widgets
@@ -40,6 +45,14 @@ MainWindow::MainWindow(QWidget* parent)
             moveHistory_, &MoveHistoryWidget::addMove);
     connect(&ThemeManager::getInstance(), &ThemeManager::themeChanged,
             boardView_, &ChessBoardView::updateTheme);
+            
+    // Connect network signals
+    connect(networkClient, &NetworkClient::connected,
+            this, &MainWindow::onNetworkConnected);
+    connect(networkClient, &NetworkClient::disconnected,
+            this, &MainWindow::onNetworkDisconnected);
+    connect(networkClient, &NetworkClient::errorOccurred,
+            this, &MainWindow::onNetworkError);
 }
 
 void MainWindow::createMenus()
@@ -83,16 +96,18 @@ void MainWindow::connectToGame()
 {
     ConnectDialog dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
-        // Handle connection
-        QString address = dialog.getAddress();
-        int port = dialog.getPort();
+        QString serverAddress = dialog.getServerAddress();
+        int port = dialog.getServerPort();
         
-        try {
-            boardView_->connectToServer(address, port);
-            statusBar()->showMessage(tr("Connected to server"));
-        } catch (const std::exception& e) {
-            QMessageBox::critical(this, tr("Connection Error"),
-                tr("Failed to connect: %1").arg(e.what()));
+        if (boardView_->getNetworkClient()) {
+            bool connected = boardView_->getNetworkClient()->connectToServer(serverAddress, port);
+            if (connected) {
+                statusBar()->showMessage(tr("Connected to %1:%2").arg(serverAddress).arg(port));
+            } else {
+                statusBar()->showMessage(tr("Failed to connect to %1:%2").arg(serverAddress).arg(port));
+            }
+        } else {
+            statusBar()->showMessage(tr("Network client not initialized"));
         }
     }
 }
@@ -259,4 +274,19 @@ void MainWindow::handleThemeChanged(const QString& theme)
     
     // Refresh the view
     update();
+}
+
+void MainWindow::onNetworkConnected()
+{
+    statusBar()->showMessage(tr("Connected to server"));
+}
+
+void MainWindow::onNetworkDisconnected()
+{
+    statusBar()->showMessage(tr("Disconnected from server"));
+}
+
+void MainWindow::onNetworkError(const QString& error)
+{
+    statusBar()->showMessage(tr("Network error: %1").arg(error));
 }

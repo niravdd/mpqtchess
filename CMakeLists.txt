@@ -42,6 +42,7 @@ add_executable(chess_client
     src/core/ChessGame.cpp
     src/network/ChessClient.cpp
     src/network/ChessServer.cpp
+    src/network/NetworkClient.cpp
     src/gui/MainWindow.cpp
     src/gui/ChessBoardView.cpp
     src/gui/ChessPieceItem.cpp
@@ -65,6 +66,7 @@ add_executable(chess_server
     src/core/ChessGame.cpp
     src/network/ChessClient.cpp
     src/network/ChessServer.cpp
+    src/network/NetworkClient.cpp
     src/gui/MainWindow.cpp
     src/gui/ChessBoardView.cpp
     src/gui/ChessPieceItem.cpp

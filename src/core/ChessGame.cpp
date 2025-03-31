@@ -789,3 +789,78 @@ void ChessGame::declineDraw()
 {
     drawOffered_ = false;
 }
+
+QJsonObject ChessGame::toJson() const
+{
+    QJsonObject obj;
+    // Save current game state: board position, current player, move history, etc.
+    obj["currentTurn"] = static_cast<int>(getCurrentTurn());
+    
+    // Save board state
+    QJsonArray boardArray;
+    for (int row = 0; row < 8; row++) {
+        for (int col = 0; col < 8; col++) {
+            QPoint pos(col, row);
+            const ChessPiece* piece = getPieceAt(pos);
+            if (piece && piece->getType() != PieceType::None) {
+                QJsonObject pieceObj;
+                pieceObj["row"] = row;
+                pieceObj["col"] = col;
+                pieceObj["type"] = static_cast<int>(piece->getType());
+                pieceObj["color"] = static_cast<int>(piece->getColor());
+                boardArray.append(pieceObj);
+            }
+        }
+    }
+    obj["board"] = boardArray;
+    
+    // Save move history
+    QJsonArray movesArray;
+    for (const auto& move : moveHistory_) {
+        movesArray.append(move);
+    }
+    obj["moves"] = movesArray;
+    
+    return obj;
+}
+
+bool ChessGame::fromJson(const QJsonObject& json)
+{
+    // Clear current game state
+    resetGame();
+    
+    // Load current turn
+    if (json.contains("currentTurn")) {
+        int turn = json["currentTurn"].toInt();
+        setCurrentTurn(static_cast<PieceColor>(turn));
+    }
+    
+    // Load board state
+    if (json.contains("board") && json["board"].isArray()) {
+        QJsonArray boardArray = json["board"].toArray();
+        for (const QJsonValue& val : boardArray) {
+            if (!val.isObject()) continue;
+            
+            QJsonObject pieceObj = val.toObject();
+            int row = pieceObj["row"].toInt();
+            int col = pieceObj["col"].toInt();
+            int type = pieceObj["type"].toInt();
+            int color = pieceObj["color"].toInt();
+            
+            // Add piece to the board
+            addPiece(QPoint(col, row), 
+                    static_cast<PieceType>(type), 
+                    static_cast<PieceColor>(color));
+        }
+    }
+    
+    // Load move history
+    if (json.contains("moves") && json["moves"].isArray()) {
+        QJsonArray movesArray = json["moves"].toArray();
+        for (const QJsonValue& val : movesArray) {
+            moveHistory_.append(val.toString());
+        }
+    }
+    
+    return true;
+}
