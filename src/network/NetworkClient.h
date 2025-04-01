@@ -1,8 +1,11 @@
 // /src/network/NetworkClient.h
 #pragma once
 
+// Include compatibility header first
+#include "../QtCompat.h"
 #include <QObject>
-#include <QTcpSocket>
+#include <QtCore/QtGlobal>
+#include <QtNetwork/QTcpSocket>
 #include <QString>
 
 class NetworkClient : public QObject {

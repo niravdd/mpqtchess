@@ -1,5 +1,6 @@
 // src/gui/ConnectDialog.h
 #pragma once
+#include "../QtCompat.h"
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QSpinBox>

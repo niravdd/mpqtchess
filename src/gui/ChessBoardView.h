@@ -1,5 +1,6 @@
 // src/gui/ChessBoardView.h
 #pragma once
+#include "../QtCompat.h"
 #include <QtWidgets/QGraphicsView>
 #include <QtWidgets/QGraphicsScene>
 #include <QFile>
