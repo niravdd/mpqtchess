@@ -54,9 +54,9 @@ void ConnectDialog::createUI()
     mainLayout->addLayout(buttonLayout);
 
     // Connect signals
-    connect(connectButton_, &QPushButton::clicked, this, &QDialog::accept);
-    connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
-    connect(addressEdit_, &QLineEdit::textChanged, 
+    connect(connectButton_, &::QPushButton::clicked, this, &::QDialog::accept);
+    connect(cancelButton, &::QPushButton::clicked, this, &::QDialog::reject);
+    connect(addressEdit_, &::QLineEdit::textChanged, 
             this, &ConnectDialog::validateInput);
 }
 

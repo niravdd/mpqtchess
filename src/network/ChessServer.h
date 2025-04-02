@@ -30,7 +30,7 @@ private slots:
     void handleClientError(QAbstractSocket::SocketError error);
 
 private:
-    QTcpServer server_;
+QTcpServer server_;
     std::array<QTcpSocket*, 2> clients_;
     std::unique_ptr<ChessGame> game_;
     

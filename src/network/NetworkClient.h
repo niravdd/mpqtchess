@@ -7,6 +7,7 @@
 #include <QtCore/QtGlobal>
 #include <QtNetwork/QTcpSocket>
 #include <QString>
+#include <QByteArray>
 
 class NetworkClient : public QObject {
     Q_OBJECT

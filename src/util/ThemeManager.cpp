@@ -47,7 +47,7 @@ bool ThemeManager::loadThemeFile(const QString& themeName)
     
     // Open theme file
     QFile file(themePath);
-    if (!file.open(QIODevice::ReadOnly)) {
+    if (!file.open(::QIODevice::ReadOnly)) {
         qWarning() << "Failed to open theme file:" << themePath;
         return false;
     }

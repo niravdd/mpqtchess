@@ -8,13 +8,13 @@ ChessNetworkServer::ChessNetworkServer(QObject* parent)
     , clients_({nullptr, nullptr})
     , game_(std::make_unique<ChessGame>())
 {
-    connect(&server_, &QTcpServer::newConnection,
+    connect(&server_, &::QTcpServer::newConnection,
             this, &ChessNetworkServer::handleNewConnection);
 }
 
 bool ChessNetworkServer::start(quint16 port)
 {
-    if (!server_.listen(QHostAddress::Any, port)) {
+    if (!server_.listen(::QHostAddress::Any, port)) {
         emit errorOccurred(tr("Failed to start server: %1")
                           .arg(server_.errorString()));
         return false;
@@ -58,12 +58,11 @@ void ChessNetworkServer::handleNewConnection()
 
     clients_[slot] = clientSocket;
     
-    connect(clientSocket, &QTcpSocket::disconnected,
+    connect(clientSocket, &::QTcpSocket::disconnected,
             this, &ChessNetworkServer::handleClientDisconnected);
-    connect(clientSocket, &QTcpSocket::readyRead,
+    connect(clientSocket, &::QTcpSocket::readyRead,
             this, &ChessNetworkServer::handleClientData);
-/// connect(clientSocket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error), this, &ChessNetworkServer::handleClientError);
-    connect(clientSocket, &QTcpSocket::errorOccurred,
+    connect(clientSocket, &::QTcpSocket::errorOccurred,
             this, &ChessNetworkServer::handleClientError);
 
     // Send connection response
@@ -100,7 +99,7 @@ void ChessNetworkServer::handleClientData()
 
     QByteArray data = client->readAll();
     QDataStream stream(data);
-    stream.setVersion(QDataStream::Qt_5_15);
+    stream.setVersion(::QDataStream::Qt_5_15);
 
     NetworkMessage msg;
     stream >> msg;
@@ -119,8 +118,8 @@ void ChessNetworkServer::handleClientError([[maybe_unused]] QAbstractSocket::Soc
 void ChessNetworkServer::sendMessage(QTcpSocket* client, const NetworkMessage& msg)
 {
     QByteArray data;
-    QDataStream stream(&data, QIODevice::WriteOnly);
-    stream.setVersion(QDataStream::Qt_5_15);
+    QDataStream stream(&data, ::QIODevice::WriteOnly);
+    stream.setVersion(::QDataStream::Qt_5_15);
     stream << msg;
     client->write(data);
 }
@@ -184,10 +183,6 @@ void ChessNetworkServer::processMessage(QTcpSocket* sender, const NetworkMessage
             response.type = MessageType::MOVE_RESPONSE;
             response.success = valid;
             response.moveData = msg.moveData;
-
-//          response.moveData.from = msg.moveData.from;
-//          response.moveData.to = msg.moveData.to;
-//          response.moveData.promotionPiece = msg.moveData.promotionPiece;
 
             if (valid) {
                 broadcastMessage(response);

@@ -18,10 +18,10 @@ ChessBoardView::ChessBoardView(QWidget* parent, NetworkClient* networkClient)
     , playerColor_(PieceColor::White)
 {
     setScene(scene_);
-    setRenderHint(QPainter::Antialiasing);
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+    setRenderHint(::QPainter::Antialiasing);
+    setHorizontalScrollBarPolicy(::Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(::Qt::ScrollBarAlwaysOff);
+    setViewportUpdateMode(::QGraphicsView::FullViewportUpdate);
     
     // Create board squares and highlight items
     setupBoard();
@@ -66,8 +66,8 @@ void ChessBoardView::setupBoard()
             highlightItems_[row][col] = scene_->addRect(
                 col * squareSize, row * squareSize,
                 squareSize, squareSize);
-            highlightItems_[row][col]->setBrush(Qt::transparent);
-            highlightItems_[row][col]->setPen(Qt::NoPen);
+            highlightItems_[row][col]->setBrush(::Qt::transparent);
+            highlightItems_[row][col]->setPen(::Qt::NoPen);
             highlightItems_[row][col]->setZValue(1);
         }
     }
@@ -83,7 +83,7 @@ void ChessBoardView::resizeEvent(QResizeEvent* event)
     
     // Update scene rect and transform
     scene_->setSceneRect(0, 0, squareSize * 8, squareSize * 8);
-    fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
+    fitInView(scene_->sceneRect(), ::Qt::KeepAspectRatio);
     
     // Update board squares and pieces
     for (int row = 0; row < 8; ++row) {
@@ -134,8 +134,8 @@ void ChessBoardView::mouseMoveEvent(QMouseEvent* event)
 {
     if (selectedPiece_) {
         QPointF newPos = mapToScene(event->pos()) - 
-                        QPointF(selectedPiece_->boundingRect().width() / 2,
-                               selectedPiece_->boundingRect().height() / 2);
+                                QPointF(selectedPiece_->boundingRect().width() / 2,
+                                selectedPiece_->boundingRect().height() / 2);
         selectedPiece_->setPos(newPos);
     }
 }
@@ -307,7 +307,7 @@ void ChessBoardView::clearHighlights()
     for (int row = 0; row < 8; ++row) {
         for (int col = 0; col < 8; ++col) {
             if (highlightItems_[row][col]) {
-                highlightItems_[row][col]->setBrush(Qt::transparent);
+                highlightItems_[row][col]->setBrush(::Qt::transparent);
             }
         }
     }
@@ -378,7 +378,7 @@ bool ChessBoardView::loadGame(const QString& filename)
 {
     // Check if file exists
     QFile file(filename);
-    if (!file.open(QIODevice::ReadOnly)) {
+    if (!file.open(::QIODevice::ReadOnly)) {
         emit statusChanged(tr("Failed to open game file: %1").arg(filename));
         return false;
     }
@@ -431,7 +431,7 @@ bool ChessBoardView::saveGame(const QString& filename)
     
     // Write to file
     QFile file(filename);
-    if (!file.open(QIODevice::WriteOnly)) {
+    if (!file.open(::QIODevice::WriteOnly)) {
         emit statusChanged(tr("Failed to open file for writing: %1").arg(filename));
         return false;
     }

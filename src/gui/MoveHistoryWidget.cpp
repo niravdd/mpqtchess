@@ -32,8 +32,8 @@ void MoveHistoryWidget::addMove(const QString& move)
             .arg(move.leftJustified(8)));
     } else {
         QTextCursor cursor = historyText_->textCursor();
-        cursor.movePosition(QTextCursor::End);
-        cursor.movePosition(QTextCursor::Left, QTextCursor::MoveAnchor, 1);
+        cursor.movePosition(::QTextCursor::End);
+        cursor.movePosition(::QTextCursor::Left, ::QTextCursor::MoveAnchor, 1);
         cursor.insertText(QString("%1\n").arg(move));
         moveNumber_++;
     }

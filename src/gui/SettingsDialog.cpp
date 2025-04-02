@@ -34,9 +34,9 @@ void SettingsDialog::createUI()
     // Add preview group
     previewView_ = new QGraphicsView;
     previewView_->setFixedSize(240, 240);  // Fixed size for preview
-    previewView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    previewView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    previewView_->setRenderHint(QPainter::Antialiasing);
+    previewView_->setHorizontalScrollBarPolicy(::Qt::ScrollBarAlwaysOff);
+    previewView_->setVerticalScrollBarPolicy(::Qt::ScrollBarAlwaysOff);
+    previewView_->setRenderHint(::QPainter::Antialiasing);
     
     previewScene_ = new QGraphicsScene(this);
     previewView_->setScene(previewScene_);
@@ -89,18 +89,18 @@ void SettingsDialog::createUI()
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     QPushButton* okButton = new QPushButton(tr("OK"));
     QPushButton* cancelButton = new QPushButton(tr("Cancel"));
-    connect(okButton, &QPushButton::clicked, this, &QDialog::accept);
-    connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
+    connect(okButton, &::QPushButton::clicked, this, &::QDialog::accept);
+    connect(cancelButton, &::QPushButton::clicked, this, &::QDialog::reject);
     buttonLayout->addStretch();
     buttonLayout->addWidget(okButton);
     buttonLayout->addWidget(cancelButton);
     mainLayout->addLayout(buttonLayout);
 
     // Connect signals
-    connect(themeCombo_, &QComboBox::currentTextChanged,
+    connect(themeCombo_, &::QComboBox::currentTextChanged,
             this, &SettingsDialog::updatePreview);
-    connect(soundEnabledCheck_, &QCheckBox::toggled,
-            volumeSpinner_, &QSpinBox::setEnabled);
+    connect(soundEnabledCheck_, &::QCheckBox::toggled,
+            volumeSpinner_, &::QSpinBox::setEnabled);
 
     // Set up initial state
     setupPreviewBoard();
@@ -158,13 +158,13 @@ void SettingsDialog::setupPreviewBoard()
                 SQUARE_SIZE, SQUARE_SIZE);
             
             bool isLight = (row + col) % 2 == 0;
-            square->setBrush(isLight ? Qt::white : QColor(128, 128, 128));
-            square->setPen(Qt::NoPen);
+            square->setBrush(isLight ? ::Qt::white : QColor(128, 128, 128));
+            square->setPen(::Qt::NoPen);
         }
     }
     
     // Fit view to scene
-    previewView_->fitInView(previewScene_->sceneRect(), Qt::KeepAspectRatio);
+    previewView_->fitInView(previewScene_->sceneRect(), ::Qt::KeepAspectRatio);
 }
 
 void SettingsDialog::updatePreview()
@@ -173,7 +173,7 @@ void SettingsDialog::updatePreview()
     QString themeName = themeCombo_->currentText().toLower();
     QFile themeFile(QString(":/themes/%1.json").arg(themeName));
     
-    if (themeFile.open(QIODevice::ReadOnly)) {
+    if (themeFile.open(::QIODevice::ReadOnly)) {
         QJsonDocument doc = QJsonDocument::fromJson(themeFile.readAll());
         QJsonObject theme = doc.object();
         
@@ -244,8 +244,8 @@ void SettingsDialog::updatePreviewPieces()
         if (!pixmap.isNull()) {
             QGraphicsPixmapItem* pieceItem = previewScene_->addPixmap(
                 pixmap.scaled(SQUARE_SIZE, SQUARE_SIZE, 
-                            Qt::KeepAspectRatio, 
-                            Qt::SmoothTransformation));
+                        ::Qt::KeepAspectRatio, 
+                        ::Qt::SmoothTransformation));
             pieceItem->setPos(piece.col * SQUARE_SIZE, piece.row * SQUARE_SIZE);
         }
     }

@@ -7,22 +7,22 @@ NetworkClient::NetworkClient(QObject* parent)
     : QObject(parent)
     , socket_(new QTcpSocket(this))
 {
-    connect(socket_, &QTcpSocket::connected, this, &NetworkClient::onConnected);
-    connect(socket_, &QTcpSocket::disconnected, this, &NetworkClient::onDisconnected);
-    connect(socket_, &QTcpSocket::readyRead, this, &NetworkClient::onReadyRead);
-    connect(socket_, &QTcpSocket::errorOccurred, this, &NetworkClient::onError);
+    connect(socket_, &::QTcpSocket::connected, this, &NetworkClient::onConnected);
+    connect(socket_, &::QTcpSocket::disconnected, this, &NetworkClient::onDisconnected);
+    connect(socket_, &::QTcpSocket::readyRead, this, &NetworkClient::onReadyRead);
+    connect(socket_, &::QTcpSocket::errorOccurred, this, &NetworkClient::onError);
 }
 
 NetworkClient::~NetworkClient()
 {
-    if (socket_->state() == QAbstractSocket::ConnectedState) {
+    if (socket_->state() == ::QAbstractSocket::ConnectedState) {
         socket_->disconnectFromHost();
     }
 }
 
 bool NetworkClient::connectToServer(const QString& host, int port)
 {
-    if (socket_->state() == QAbstractSocket::ConnectedState) {
+    if (socket_->state() == ::QAbstractSocket::ConnectedState) {
         return true;
     }
 
@@ -32,14 +32,14 @@ bool NetworkClient::connectToServer(const QString& host, int port)
 
 void NetworkClient::disconnectFromServer()
 {
-    if (socket_->state() == QAbstractSocket::ConnectedState) {
+    if (socket_->state() == ::QAbstractSocket::ConnectedState) {
         socket_->disconnectFromHost();
     }
 }
 
 bool NetworkClient::isConnected() const
 {
-    return socket_->state() == QAbstractSocket::ConnectedState;
+    return socket_->state() == ::QAbstractSocket::ConnectedState;
 }
 
 void NetworkClient::sendMove(const QString& from, const QString& to)
@@ -55,7 +55,7 @@ void NetworkClient::sendMove(const QString& from, const QString& to)
     moveObj["to"] = to;
 
     QJsonDocument doc(moveObj);
-    QByteArray data = doc.toJson(QJsonDocument::Compact) + "\n";
+    QByteArray data = doc.toJson(::QJsonDocument::Compact) + "\n";
     socket_->write(data);
 }
 
@@ -81,7 +81,7 @@ void NetworkClient::onReadyRead()
         QJsonParseError parseError;
         QJsonDocument doc = QJsonDocument::fromJson(jsonData, &parseError);
         
-        if (parseError.error != QJsonParseError::NoError) {
+        if (parseError.error != ::QJsonParseError::NoError) {
             emit errorOccurred("Invalid message from server: " + parseError.errorString());
             continue;
         }

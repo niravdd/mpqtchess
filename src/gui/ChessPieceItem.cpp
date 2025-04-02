@@ -6,11 +6,11 @@ ChessPieceItem::ChessPieceItem(std::shared_ptr<ChessPiece> piece, QGraphicsItem*
     : QGraphicsPixmapItem(parent)
     , piece_(piece)
 {
-    setFlag(QGraphicsItem::ItemIsMovable);
-    setFlag(QGraphicsItem::ItemSendsGeometryChanges);
+    setFlag(::QGraphicsItem::ItemIsMovable);
+    setFlag(::QGraphicsItem::ItemSendsGeometryChanges);
     
     // Enable SVG smooth scaling
-    setTransformationMode(Qt::SmoothTransformation);
+    setTransformationMode(::Qt::SmoothTransformation);
 }
 
 void ChessPieceItem::updateSize(qreal squareSize)
@@ -20,12 +20,12 @@ void ChessPieceItem::updateSize(qreal squareSize)
     
     // Create a pixmap of the desired size
     QPixmap pixmap(squareSize, squareSize);
-    pixmap.fill(Qt::transparent);  // Ensure transparent background
+    pixmap.fill(::Qt::transparent);  // Ensure transparent background
     
     // Render the SVG to the pixmap
     QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    painter.setRenderHint(::QPainter::Antialiasing);
+    painter.setRenderHint(::QPainter::SmoothPixmapTransform);
     
     // Get theme scale factor
 //  qreal scale = Settings::getInstance().getThemeScale(piece_->getColor());

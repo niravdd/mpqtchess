@@ -1,5 +1,6 @@
 // src/network/ChessProtocol.h
 #pragma once
+#include "../QtCompat.h"
 #include <QtCore/QDataStream>
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
@@ -70,4 +71,3 @@ inline QDataStream& operator>>(QDataStream& stream, NetworkMessage& msg) {
     msg.type = static_cast<MessageType>(type);
     return stream;
 }
-

@@ -28,11 +28,11 @@ MainWindow::MainWindow(QWidget* parent)
     
     controlDock_ = new QDockWidget(tr("Game Control"), this);
     controlDock_->setWidget(controlPanel_);
-    addDockWidget(Qt::RightDockWidgetArea, controlDock_);
+    addDockWidget(::Qt::RightDockWidgetArea, controlDock_);
     
     historyDock_ = new QDockWidget(tr("Move History"), this);
     historyDock_->setWidget(moveHistory_);
-    addDockWidget(Qt::RightDockWidgetArea, historyDock_);
+    addDockWidget(::Qt::RightDockWidgetArea, historyDock_);
     
     createMenus();
     createToolBars();
@@ -59,13 +59,13 @@ void MainWindow::createMenus()
 {
     QMenu* fileMenu = menuBar()->addMenu(tr("&File"));
 
-    fileMenu->addAction(tr("&New Game"), QKeySequence::New, this, &MainWindow::newGame);
+    fileMenu->addAction(tr("&New Game"), ::QKeySequence::New, this, &MainWindow::newGame);
     fileMenu->addAction(tr("&Connect..."), this, &MainWindow::connectToGame);
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("&Save Game"), QKeySequence::Save, this, &MainWindow::saveGame);
-    fileMenu->addAction(tr("&Load Game"), QKeySequence::Open, this, &MainWindow::loadGame);
+    fileMenu->addAction(tr("&Save Game"), ::QKeySequence::Save, this, &MainWindow::saveGame);
+    fileMenu->addAction(tr("&Load Game"), ::QKeySequence::Open, this, &MainWindow::loadGame);
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("&Exit"), QKeySequence::Quit, qApp, &QApplication::quit);
+    fileMenu->addAction(tr("&Exit"), ::QKeySequence::Quit, qApp, &::QApplication::quit);
     
     QMenu* viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(controlDock_->toggleViewAction());
@@ -83,9 +83,9 @@ void MainWindow::newGame()
     QMessageBox::StandardButton reply = QMessageBox::question(
         this, tr("New Game"),
         tr("Are you sure you want to start a new game?"),
-        QMessageBox::Yes | QMessageBox::No);
+        ::QMessageBox::Yes | ::QMessageBox::No);
         
-    if (reply == QMessageBox::Yes) {
+    if (reply == ::QMessageBox::Yes) {
         boardView_->resetGame();
         moveHistory_->clear();
         controlPanel_->resetClock();
@@ -95,7 +95,7 @@ void MainWindow::newGame()
 void MainWindow::connectToGame()
 {
     ConnectDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted) {
+    if (dialog.exec() == ::QDialog::Accepted) {
         QString serverAddress = dialog.getServerAddress();
         int port = dialog.getServerPort();
         
@@ -154,7 +154,7 @@ void MainWindow::loadGame()
 void MainWindow::showSettings()
 {
     SettingsDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted) {
+    if (dialog.exec() == ::QDialog::Accepted) {
         loadSettings();
         boardView_->applySettings();
         controlPanel_->applySettings();
@@ -163,8 +163,8 @@ void MainWindow::showSettings()
 
 void MainWindow::about()
 {
-    QMessageBox::about(this, tr("About Chess Game"),
-        tr("Chess Game v1.0\n\n"
+    QMessageBox::about(this, tr("About Multiplayer Chess"),
+        tr("MP Chess v1.0\n\n"
            "A multiplayer chess game implemented with Qt.\n"
            "Licensed under GPL v3."));
 }

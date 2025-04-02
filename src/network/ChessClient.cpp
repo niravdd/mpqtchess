@@ -12,19 +12,14 @@ ChessClient::ChessClient(QObject* parent)
     , drawPending_(false)
 {
     // Set up socket connections
-    connect(&socket_, &QTcpSocket::connected,
-            this, &ChessClient::handleConnected);
-    connect(&socket_, &QTcpSocket::disconnected,
-            this, &ChessClient::handleDisconnected);
-    connect(&socket_, &QTcpSocket::readyRead,
-            this, &ChessClient::handleReadyRead);
-/// connect(&socket_, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error), this, &ChessClient::handleError);
-    connect(&socket_, &QTcpSocket::errorOccurred,
-        this, &ChessClient::handleError);
+    connect(&socket_, &::QTcpSocket::connected, this, &ChessClient::handleConnected);
+    connect(&socket_, &::QTcpSocket::disconnected, this, &ChessClient::handleDisconnected);
+    connect(&socket_, &::QTcpSocket::readyRead, this, &ChessClient::handleReadyRead);
+    connect(&socket_, &::QTcpSocket::errorOccurred, this, &ChessClient::handleError);
 
     // Set up keep-alive timer
     QTimer* keepAliveTimer = new QTimer(this);
-    connect(keepAliveTimer, &QTimer::timeout, [this]() {
+    connect(keepAliveTimer, &::QTimer::timeout, [this]() {
         if (isConnected()) {
             NetworkMessage msg;
             msg.type = MessageType::KEEPALIVE;
@@ -151,7 +146,7 @@ void ChessClient::handleError([[maybe_unused]] QAbstractSocket::SocketError sock
     QString errorMessage = socket_.errorString();
     emit connectionError(errorMessage);
     
-    if (socket_.state() != QAbstractSocket::ConnectedState) {
+    if (socket_.state() != ::QAbstractSocket::ConnectedState) {
         handleDisconnected();
     }
 }
@@ -183,7 +178,7 @@ bool ChessClient::tryProcessNextMessage()
     }
 
     QDataStream stream(receivedData_);
-    stream.setVersion(QDataStream::Qt_5_15);
+    stream.setVersion(::QDataStream::Qt_5_15);
 
     // Read message size
     quint32 messageSize;
@@ -215,7 +210,7 @@ NetworkMessage ChessClient::parseMessage(const QByteArray& data)
 {
     NetworkMessage msg;
     QDataStream stream(data);
-    stream.setVersion(QDataStream::Qt_5_15);
+    stream.setVersion(::QDataStream::Qt_5_15);
     
     stream >> msg;
     return msg;
@@ -224,8 +219,8 @@ NetworkMessage ChessClient::parseMessage(const QByteArray& data)
 void ChessClient::sendMessage(const NetworkMessage& msg)
 {
     QByteArray data;
-    QDataStream stream(&data, QIODevice::WriteOnly);
-    stream.setVersion(QDataStream::Qt_5_15);
+    QDataStream stream(&data, ::QIODevice::WriteOnly);
+    stream.setVersion(::QDataStream::Qt_5_15);
 
     // Reserve space for size
     stream << quint32(0);

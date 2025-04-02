@@ -5,7 +5,7 @@
 #include <QtWidgets/QLCDNumber>
 #include <QtWidgets/QPushButton>  // QPushButton is a widget
 #include <QtWidgets/QLabel>       // QLabel is a widget
-#include <QtCore/QTimer>         // QTimer is a core functionality
+#include <QtCore/QTimer>            // QTimer is a core functionality
 #include <QtMultimedia/QMediaPlayer>  // QMediaPlayer is in multimedia module
 
 class GameControlPanel : public QWidget {

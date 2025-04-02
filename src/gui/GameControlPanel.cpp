@@ -17,7 +17,7 @@ GameControlPanel::GameControlPanel(QWidget* parent)
     setupUI();
     
     gameTimer_ = new QTimer(this);
-    connect(gameTimer_, &QTimer::timeout, this, &GameControlPanel::updateClocks);
+    connect(gameTimer_, &::QTimer::timeout, this, &GameControlPanel::updateClocks);
     
     soundPlayer_ = new QMediaPlayer(this);
     auto audioOutput = new QAudioOutput(this);
@@ -56,10 +56,10 @@ void GameControlPanel::setupUI()
     resignBtn_ = new QPushButton(tr("Resign"), this);
     turnLabel_ = new QLabel(tr("White to move"));
     
-    connect(startBtn_, &QPushButton::clicked, this, &GameControlPanel::startGame);
-    connect(pauseBtn_, &QPushButton::clicked, this, &GameControlPanel::pauseGame);
-    connect(drawBtn_, &QPushButton::clicked, this, &GameControlPanel::offerDraw);
-    connect(resignBtn_, &QPushButton::clicked, this, &GameControlPanel::resign);
+    connect(startBtn_, &::QPushButton::clicked, this, &GameControlPanel::startGame);
+    connect(pauseBtn_, &::QPushButton::clicked, this, &GameControlPanel::pauseGame);
+    connect(drawBtn_, &::QPushButton::clicked, this, &GameControlPanel::offerDraw);
+    connect(resignBtn_, &::QPushButton::clicked, this, &GameControlPanel::resign);
     
     controlLayout->addWidget(startBtn_);
     controlLayout->addWidget(pauseBtn_);

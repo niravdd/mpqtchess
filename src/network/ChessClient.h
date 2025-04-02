@@ -1,6 +1,7 @@
 // src/network/ChessClient.h
 #pragma once
 
+#include "../QtCompat.h"
 #include <QObject>
 #include <QTcpSocket>
 #include <QHostAddress>
@@ -22,8 +23,7 @@ public:
     PieceColor getPlayerColor() const { return playerColor_; }
 
     // Game actions
-    void sendMove(const Position& from, const Position& to, 
-                 PieceType promotionPiece = PieceType::None);
+    void sendMove(const Position& from, const Position& to, PieceType promotionPiece = PieceType::None);
     void offerDraw();
     void respondToDraw(bool accept);
     void resign();
@@ -41,8 +41,7 @@ signals:
     void turnChanged(PieceColor color);
     
     // Move signals
-    void moveReceived(const Position& from, const Position& to, 
-                     PieceType promotionPiece);
+    void moveReceived(const Position& from, const Position& to, PieceType promotionPiece);
     void moveValidated(bool valid, const QString& error);
     void moveMade(const Position& from, const Position& to);
     
@@ -98,7 +97,7 @@ private:
 
 // Inline utility functions
 inline bool ChessClient::isConnected() const {
-    return socket_.state() == QAbstractSocket::ConnectedState;
+    return socket_.state() == ::QAbstractSocket::ConnectedState;
 }
 
 // Network message size constants
