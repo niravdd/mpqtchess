@@ -1,46 +1,68 @@
 cmake_minimum_required(VERSION 3.16)
 project(MPChess VERSION 1.0 LANGUAGES CXX)
 
-# Set C++ standard
+# Ensure modern CMake practices
+set(CMAKE_MODULE_PATH \${CMAKE_MODULE_PATH} "\${CMAKE_SOURCE_DIR}/cmake")
+
+# Require C++17 or higher
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Qt settings
+# Explicitly set Qt installation paths
+set(QT_ROOT "\$ENV{HOME}/Qt/6.5.3/macos")
+set(Qt6_DIR "\${QT_ROOT}/lib/cmake/Qt6")
+
+# Add multiple potential paths to help CMake find Qt
+list(APPEND CMAKE_PREFIX_PATH 
+    "\${QT_ROOT}"
+    "\${QT_ROOT}/lib"
+    "\${QT_ROOT}/lib/cmake"
+    "\${QT_ROOT}/lib/cmake/Qt6"
+)
+
+# Explicitly find Threads package
+find_package(Threads REQUIRED)
+
+# Find Qt packages with explicit version and components
+find_package(Qt6 6.5 COMPONENTS 
+    Core 
+    Gui 
+    Widgets 
+    Network 
+    Multimedia 
+    Svg 
+    REQUIRED
+)
+
+# Qt Configuration
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Important: Add appropriate preprocessor defines for Qt
+# macOS Framework support
+if(APPLE)
+    # Add Framework search paths
+    set(CMAKE_FRAMEWORK_PATH 
+        "\${QT_ROOT}/lib"
+        \${CMAKE_FRAMEWORK_PATH}
+    )
+
+    # Use Frameworks for linking
+    set(CMAKE_FIND_FRAMEWORK FIRST)
+
+    # Deployment target
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
+endif()
+
+# Add definitions for Qt compatibility and warnings
 add_definitions(
     -DQT_DEPRECATED_WARNINGS
     -DQT_DISABLE_DEPRECATED_BEFORE=0x060000
 )
 
-# Find Qt packages
-find_package(Qt6 COMPONENTS Core REQUIRED)
-find_package(Qt6 COMPONENTS Gui REQUIRED)
-find_package(Qt6 COMPONENTS Widgets REQUIRED) 
-find_package(Qt6 COMPONENTS Network REQUIRED)
-find_package(Qt6 COMPONENTS Multimedia REQUIRED)
-find_package(Qt6 COMPONENTS Svg REQUIRED)
-
-# Include directories
-include_directories(
-    src
-    \${Qt6Core_INCLUDE_DIRS}
-    \${Qt6Gui_INCLUDE_DIRS}
-    \${Qt6Widgets_INCLUDE_DIRS}
-    \${Qt6Network_INCLUDE_DIRS}
-    \${Qt6Multimedia_INCLUDE_DIRS}
-    \${Qt6Svg_INCLUDE_DIRS}
-)
-
-# Set output directory
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
-
-# Client executable - using direct file paths
-add_executable(chess_client
+# Client Executable
+add_executable(chess_client 
     # Main file
     client/main.cpp
     
@@ -74,7 +96,7 @@ add_executable(chess_client
     assets/themes.qrc
 )
 
-# Server executable - using direct file paths
+# Server Executable
 add_executable(chess_server
     # Main files
     server/main.cpp
@@ -91,40 +113,38 @@ add_executable(chess_server
     src/network/NetworkClient.cpp
 )
 
-# Platform-specific settings
+# Compiler-specific warnings and options
 if(APPLE)
     target_compile_options(chess_client PRIVATE 
-        -Wno-deprecated-declarations 
         -Wno-nullability-completeness
         -Wno-reserved-user-defined-literal
         -Wno-unknown-pragmas
-        -Wno-inconsistent-missing-override
-    )
-    target_compile_options(chess_server PRIVATE 
-        -Wno-deprecated-declarations 
-        -Wno-nullability-completeness
-        -Wno-reserved-user-defined-literal
-        -Wno-unknown-pragmas
-        -Wno-inconsistent-missing-override
+        -Wno-deprecated-declarations
     )
     
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
+    target_compile_options(chess_server PRIVATE 
+        -Wno-nullability-completeness
+        -Wno-reserved-user-defined-literal
+        -Wno-unknown-pragmas
+        -Wno-deprecated-declarations
+    )
 endif()
 
-# Link libraries for client
-target_link_libraries(chess_client PRIVATE
+# Link libraries to targets
+target_link_libraries(chess_client PRIVATE 
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
     Qt6::Svg
+    Threads::Threads
 )
 
-# Link libraries for server
-target_link_libraries(chess_server PRIVATE
-    Qt6::Core
+target_link_libraries(chess_server PRIVATE 
+    Qt6::Core 
     Qt6::Network
+    Threads::Threads
 )
 
 # Installation rules
@@ -135,8 +155,9 @@ install(TARGETS chess_client chess_server
 
 install(DIRECTORY assets/
     DESTINATION share/mpchess
-    FILES_MATCHING PATTERN "*.png"
-                  PATTERN "*.svg"
-                  PATTERN "*.wav"
-                  PATTERN "*.json"
+    FILES_MATCHING 
+    PATTERN "*.png"
+    PATTERN "*.svg"
+    PATTERN "*.wav"
+    PATTERN "*.json"
 )

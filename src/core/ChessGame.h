@@ -7,13 +7,8 @@
 #include <string>
 #include <map>
 #include <QJsonObject>
-
-namespace ChessCore {
-
-enum class PieceColor {
-    White,
-    Black
-};
+#include <QJsonArray>
+#include <QJsonDocument>
 
 enum class GameResult {
     InProgress,
@@ -51,6 +46,9 @@ public:
     bool isCheck;
     bool isCheckmate;
     PieceType promotionPiece;
+
+    static MoveRecord fromString(const std::string& str);
+    std::string toString() const;
 };
 
 class ChessGame {
@@ -68,6 +66,9 @@ public:
     bool isStalemate(PieceColor color) const;
     bool isDraw() const;
     bool isValidPosition(const Position& pos) const;
+    void resetGame();
+    void setCurrentTurn(PieceColor color);
+    void addPiece(const QPoint& position, std::shared_ptr<ChessPiece> piece);
     
     PieceColor getCurrentTurn() const { return currentTurn_; }
     PieceColor getCurrentPlayer() const { return currentPlayer_; }

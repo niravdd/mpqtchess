@@ -3,6 +3,8 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDebug>
+#include <QCoreApplication>
 
 ThemeManager& ThemeManager::getInstance()
 {
@@ -15,41 +17,88 @@ ThemeManager::ThemeManager() : currentThemeName_("classic")
     loadTheme(currentThemeName_);
 }
 
-void ThemeManager::loadTheme(const QString& themeName)
+bool ThemeManager::loadTheme(const QString& themeName)
 {
-    if (!themeCache_.contains(themeName)) {
-        QJsonObject themeJson = loadThemeFile(themeName);
-        ThemeConfig config;
-        
-        auto board = themeJson["board"].toObject();
+    if (themeName.isEmpty()) {
+        qWarning() << "Attempted to load empty theme name";
+        return false;
+    }
+
+    // Load from cache if available
+    if (themeCache_.contains(themeName)) {
+        currentThemeName_ = themeName;
+        currentTheme_ = themeCache_[themeName];
+        emit themeChanged(themeName);
+        return true;
+    }
+
+    // Load theme file
+    QFile themeFile(QString(":/assets/themes/%1.json").arg(themeName));
+    if (!themeFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "Failed to open theme file:" << themeFile.fileName();
+        return false;
+    }
+
+    // Parse JSON
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(themeFile.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "Theme JSON parse error:" << parseError.errorString();
+        return false;
+    }
+
+    // Validate JSON structure
+    QJsonObject themeJson = doc.object();
+    if (!themeJson.contains("board") || !themeJson.contains("pieces")) {
+        qWarning() << "Invalid theme JSON structure";
+        return false;
+    }
+
+    // Parse theme config
+    ThemeConfig config;
+    try {
+        // Parse board colors
+        QJsonObject board = themeJson["board"].toObject();
         config.colors.lightSquares = QColor(board["lightSquares"].toString());
         config.colors.darkSquares = QColor(board["darkSquares"].toString());
         config.colors.border = QColor(board["border"].toString());
         config.colors.highlightMove = QColor(board["highlightMove"].toString());
         config.colors.highlightCheck = QColor(board["highlightCheck"].toString());
-        
-        auto pieces = themeJson["pieces"].toObject();
+
+        // Parse piece configuration
+        QJsonObject pieces = themeJson["pieces"].toObject();
         config.pieceSet = pieces["set"].toString();
-        config.pieceScale = pieces["scale"].toDouble();
+        config.pieceScale = pieces["scale"].toDouble(1.0);
         
-        themeCache_[themeName] = config;
+        // Validate scale range
+        if (config.pieceScale < 0.5 || config.pieceScale > 2.0) {
+            qWarning() << "Invalid piece scale, using default";
+            config.pieceScale = 1.0;
+        }
+    } catch (const std::exception& e) {
+        qCritical() << "Theme parse exception:" << e.what();
+        return false;
     }
-    
+
+    // Update state
+    themeCache_[themeName] = config;
     currentThemeName_ = themeName;
-    currentTheme_ = themeCache_[themeName];
-    emit themeChanged();
+    currentTheme_ = config;
+    
+    emit themeChanged(themeName);
+    return true;
 }
 
-bool ThemeManager::loadThemeFile(const QString& themeName)
+QJsonObject ThemeManager::loadThemeFile(const QString& themeName)
 {
     // Construct path to theme file - typically in resources
     QString themePath = QString(":/themes/%1.json").arg(themeName);
     
     // Open theme file
     QFile file(themePath);
-    if (!file.open(::QIODevice::ReadOnly)) {
+    if (!file.open(QIODevice::ReadOnly)) {
         qWarning() << "Failed to open theme file:" << themePath;
-        return false;
+        return QJsonObject();
     }
     
     // Read file content
@@ -60,27 +109,20 @@ bool ThemeManager::loadThemeFile(const QString& themeName)
     QJsonDocument document = QJsonDocument::fromJson(themeData);
     if (document.isNull() || !document.isObject()) {
         qWarning() << "Invalid theme file format:" << themePath;
-        return false;
+        return QJsonObject();
     }
     
     // Store theme data
     themeData_ = document.object();
-    currentThemeName_ = themeName;
     
-    // Parse and cache commonly used theme properties for faster access
+    // Parse and cache commonly used theme properties
     if (themeData_.contains("board")) {
         QJsonObject board = themeData_["board"].toObject();
         
         // Cache board colors
-        if (board.contains("lightSquares")) {
-            lightSquareColor_ = QColor(board["lightSquares"].toString());
-        }
-        if (board.contains("darkSquares")) {
-            darkSquareColor_ = QColor(board["darkSquares"].toString());
-        }
-        if (board.contains("highlight")) {
-            highlightColor_ = QColor(board["highlight"].toString());
-        }
+        lightSquareColor_ = QColor(board["lightSquares"].toString());
+        darkSquareColor_ = QColor(board["darkSquares"].toString());
+        highlightColor_ = QColor(board["highlight"].toString());
     }
     
     // Parse piece style information if available
@@ -95,12 +137,27 @@ bool ThemeManager::loadThemeFile(const QString& themeName)
         blackScale_ = pieces.value("blackScale").toDouble(1.0);
     }
     
-    // Emit theme changed notification
-    emit themeChanged(themeName);
-    
-    return true;
+    return themeData_;
 }
 
-const QString& ThemeManager::getCurrentTheme() const {
+const ThemeManager::ThemeConfig& ThemeManager::getCurrentTheme() const
+{
+    return currentTheme_;
+}
+
+const QString& ThemeManager::getCurrentThemeName() const
+{
     return currentThemeName_;
+}
+
+void ThemeManager::setCurrentTheme(const QString& themeName)
+{
+    loadTheme(themeName);
+}
+
+QStringList ThemeManager::getAvailableThemes() const
+{
+    // This would typically return a list of available theme names
+    // You might want to implement this based on your resources or file system
+    return {"classic", "minimalist", "modern"};
 }

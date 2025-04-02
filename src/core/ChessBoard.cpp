@@ -282,3 +282,9 @@ bool ChessBoard::isValidPosition(const Position& pos) const
 {
     return pos.row >= 0 && pos.row < 8 && pos.col >= 0 && pos.col < 8;
 }
+
+void ChessBoard::placePiece(const QPoint& position, std::shared_ptr<ChessPiece> piece) 
+{
+    if (!isValidPosition(position)) return;
+    board_[position.y()][position.x()] = piece;
+}

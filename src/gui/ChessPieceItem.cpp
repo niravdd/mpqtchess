@@ -15,6 +15,7 @@ ChessPieceItem::ChessPieceItem(std::shared_ptr<ChessPiece> piece, QGraphicsItem*
 
 void ChessPieceItem::updateSize(qreal squareSize)
 {
+    lastSquareSize_ = squareSize;
     QString resourcePath = getResourcePath();
     QSvgRenderer renderer(resourcePath);
     
@@ -41,7 +42,7 @@ void ChessPieceItem::updateSize(qreal squareSize)
 
 QString ChessPieceItem::getResourcePath() const
 {
-    QString themeName = Settings::getInstance().getCurrentTheme().toLower();
+    QString themeName = (currentTheme_.isEmpty() ? Settings::getInstance().getCurrentTheme().toLower() : currentTheme_);
     QString color = (piece_->getColor() == PieceColor::White) ? "white" : "black";
     QString pieceName;
     
@@ -59,4 +60,15 @@ QString ChessPieceItem::getResourcePath() const
            .arg(themeName)
            .arg(color)
            .arg(pieceName);
+}
+
+void ChessPieceItem::setTheme(const QString& themeName)
+{
+    if (currentTheme_ != themeName) {
+        currentTheme_ = themeName.toLower();
+        // Re-render with new theme if we have valid size
+        if (lastSquareSize_ > 0) {
+            updateSize(lastSquareSize_);
+        }
+    }
 }

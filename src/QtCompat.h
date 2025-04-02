@@ -1,17 +1,27 @@
 #pragma once
 
-// This is a minimal QtCompat.h that just helps with Qt version differences
+// Ensure we include the actual Qt headers before any forward declarations
+#include <QtCore>
+#include <QtGui>
+#include <QtNetwork>
+#include <QtWidgets>
+#include <QtMultimedia>
 
-// Make sure Qt macros aren't redefined
-#ifndef QT_COMPAT_DEFINES
-#define QT_COMPAT_DEFINES
+// Remove any forward declarations that might conflict with Qt's types
+// Do NOT forward declare built-in Qt types like QString
 
-// We'll use Qt's own definitions for these keywords
-#ifndef QT_NO_KEYWORDS
-// Don't define anything here - let Qt handle it
+// Qt6 Compatibility Macros
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    #define QSTRING_COMPAT(x) QString::fromUtf8(x)
+#else
+    #define QSTRING_COMPAT(x) QString(x)
 #endif
 
-#endif // QT_COMPAT_DEFINES
+// Only forward declare your custom types, not Qt types
+class ChessGame;
+class ChessBoard;
 
-// Include common Qt headers
-#include <QtGlobal>
+// Optional: Ensure full inclusion of necessary headers
+#include <QString>
+#include <QObject>
+#include <QMediaPlayer>

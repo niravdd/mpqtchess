@@ -1,5 +1,6 @@
 // src/core/ChessGame.cpp
 #include "ChessGame.h"
+#include "ChessPiece.h"
 #include <algorithm>
 #include <cassert>
 #include <sstream>
@@ -801,7 +802,7 @@ QJsonObject ChessGame::toJson() const
     for (int row = 0; row < 8; row++) {
         for (int col = 0; col < 8; col++) {
             QPoint pos(col, row);
-            const ChessPiece* piece = getPieceAt(pos);
+            const ChessPiece* piece = getPieceAt(pos).get();
             if (piece && piece->getType() != PieceType::None) {
                 QJsonObject pieceObj;
                 pieceObj["row"] = row;
@@ -817,7 +818,16 @@ QJsonObject ChessGame::toJson() const
     // Save move history
     QJsonArray movesArray;
     for (const auto& move : moveHistory_) {
-        movesArray.append(move);
+        QJsonObject moveObj;
+        moveObj["moveNumber"] = move.moveNumber;
+        moveObj["piece"] = static_cast<int>(move.piece);
+        moveObj["fromSquare"] = QString::fromStdString(move.fromSquare);
+        moveObj["toSquare"] = QString::fromStdString(move.toSquare);
+        moveObj["isCapture"] = move.isCapture;
+        moveObj["isCheck"] = move.isCheck;
+        moveObj["isCheckmate"] = move.isCheckmate;
+        moveObj["promotionPiece"] = static_cast<int>(move.promotionPiece);
+        movesArray.append(moveObj);
     }
     obj["moves"] = movesArray;
     
@@ -848,9 +858,11 @@ bool ChessGame::fromJson(const QJsonObject& json)
             int color = pieceObj["color"].toInt();
             
             // Add piece to the board
-            addPiece(QPoint(col, row), 
-                    static_cast<PieceType>(type), 
-                    static_cast<PieceColor>(color));
+            auto piece = std::make_shared<ChessPiece>(
+                                static_cast<PieceType>(type),
+                                static_cast<PieceColor>(color)
+            );
+            addPiece(QPoint(col, row), piece);
         }
     }
     
@@ -858,9 +870,98 @@ bool ChessGame::fromJson(const QJsonObject& json)
     if (json.contains("moves") && json["moves"].isArray()) {
         QJsonArray movesArray = json["moves"].toArray();
         for (const QJsonValue& val : movesArray) {
-            moveHistory_.append(val.toString());
+            if (val.isObject()) {
+                moveHistory_.push_back(MoveRecord::fromString(val.toString().toStdString()));
+            }
         }
     }
     
     return true;
+}
+
+void ChessGame::setCurrentTurn(PieceColor color) {
+    currentTurn_ = color;
+}
+
+void ChessGame::addPiece(const QPoint& position, std::shared_ptr<ChessPiece> piece) {
+    board_->placePiece(position, piece);
+}
+
+void ChessGame::resetGame() 
+{
+    // Reset board state using existing initialization logic
+    board_->initializeBoard();
+    
+    // Clear move history and game state
+    moveHistory_.clear();
+    gameOver_ = false;
+    gameResult_ = GameResult::InProgress;
+
+    // Reset turn/player tracking
+    currentTurn_ = PieceColor::White;
+    currentPlayer_ = PieceColor::White;  // Synchronize with currentTurn_
+
+    // Reset move counters
+    halfMoveClock_ = 0;    // For fifty-move rule
+    fullMoveNumber_ = 1;   // Total moves counter
+    
+    // Reset draw state
+    drawOffered_ = false;
+    drawOfferingColor_ = PieceColor::White; // Neutral default
+    
+    // Clear special move tracking
+    lastMove_ = Move();
+    
+    // Reset king positions through board
+    board_->setWhiteKingPosition(Position(7, 4));  // e1
+    board_->setBlackKingPosition(Position(0, 4));  // e8
+}
+
+std::string MoveRecord::toString() const
+{
+    return std::to_string(moveNumber) + "," +
+           std::to_string(static_cast<int>(piece)) + "," +
+           fromSquare + "," +
+           toSquare + "," +
+           (isCapture ? "1" : "0") + "," +
+           (isCheck ? "1" : "0") + "," +
+           (isCheckmate ? "1" : "0") + "," +
+           std::to_string(static_cast<int>(promotionPiece));
+}
+
+MoveRecord MoveRecord::fromString(const std::string& str)
+{
+    MoveRecord record;
+    size_t pos = 0;
+    size_t next;
+    int field_counter = 0;
+    
+    try {
+        while((next = str.find(',', pos)) != std::string::npos && field_counter < 7) {
+            std::string token = str.substr(pos, next - pos);
+            
+            switch(field_counter) {
+                case 0: record.moveNumber = std::stoi(token); break;
+                case 1: record.piece = static_cast<PieceType>(std::stoi(token)); break;
+                case 2: record.fromSquare = token; break;
+                case 3: record.toSquare = token; break;
+                case 4: record.isCapture = (token == "1"); break;
+                case 5: record.isCheck = (token == "1"); break;
+                case 6: record.isCheckmate = (token == "1"); break;
+            }
+            
+            pos = next + 1;
+            field_counter++;
+        }
+        
+        // Handle last field (promotionPiece)
+        if(pos < str.size()) {
+            record.promotionPiece = static_cast<PieceType>(std::stoi(str.substr(pos)));
+        }
+    } catch(const std::exception& e) {
+        // Return empty record on parse failure
+        return MoveRecord{};
+    }
+    
+    return record;
 }

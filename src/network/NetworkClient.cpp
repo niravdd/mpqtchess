@@ -109,3 +109,34 @@ void NetworkClient::onError(QAbstractSocket::SocketError socketError)
     Q_UNUSED(socketError);                  // Add this if you don't use the parameter directly
     emit errorOccurred("Socket error: " + socket_->errorString());
 }
+
+void NetworkClient::processNetworkData(const QByteArray& data)
+{
+    // Example format: "e2-e4" or "g1-f3"
+    QString moveStr = QString::fromUtf8(data).simplified();
+    
+    // Basic validation
+    if (moveStr.length() < 5 || !moveStr.contains('-')) {
+        qWarning() << "Invalid move format received:" << moveStr;
+        return;
+    }
+
+    // Split into from/to components
+    QStringList parts = moveStr.split('-');
+    if (parts.size() != 2) {
+        qWarning() << "Malformed move string:" << moveStr;
+        return;
+    }
+
+    QString from = parts[0].trimmed().left(2);
+    QString to = parts[1].trimmed().left(2);
+
+    // Basic chess notation validation
+    QRegularExpression squareRegex("[a-h][1-8]");
+    if (!squareRegex.match(from).hasMatch() || !squareRegex.match(to).hasMatch()) {
+        qWarning() << "Invalid chess coordinates:" << from << "->" << to;
+        return;
+    }
+
+    emit moveReceived(from, to);
+}

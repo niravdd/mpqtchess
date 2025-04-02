@@ -17,6 +17,7 @@ public:
     std::vector<Position> getLegalMoves(const Position& pos) const;
     bool movePiece(const Position& from, const Position& to, PieceType promotionPiece = PieceType::Queen);
     std::vector<Position> getPossibleMoves(const Position& pos) const;
+    void placePiece(const QPoint& position, std::shared_ptr<ChessPiece> piece);
 
     bool isInCheck(PieceColor color) const;
     bool isCheckmate(PieceColor color) const;

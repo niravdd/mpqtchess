@@ -14,8 +14,11 @@ public:
     
     void updateSize(qreal squareSize);
     std::shared_ptr<ChessPiece> getPiece() const { return piece_; }
+    void setTheme(const QString& themeName);
 
 private:
     std::shared_ptr<ChessPiece> piece_;
     QString getResourcePath() const;
+    QString currentTheme_;
+    qreal lastSquareSize_ = 0;  // Track size for theme updates
 };

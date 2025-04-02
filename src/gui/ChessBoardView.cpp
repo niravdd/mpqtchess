@@ -12,24 +12,39 @@ ChessBoardView::ChessBoardView(QWidget* parent, NetworkClient* networkClient)
     , currentTheme_(Settings::getInstance().getCurrentTheme())
     , animationsEnabled_(Settings::getInstance().getAnimationsEnabled())
     , soundEnabled_(Settings::getInstance().isSoundEnabled())
-    , networkClient_(networkClient)  // Use the passed parameter
+    , networkClient_(networkClient)
     , selectedSquare_(-1, -1)
     , gameOver_(false)
     , playerColor_(PieceColor::White)
 {
     setScene(scene_);
-    setRenderHint(::QPainter::Antialiasing);
-    setHorizontalScrollBarPolicy(::Qt::ScrollBarAlwaysOff);
-    setVerticalScrollBarPolicy(::Qt::ScrollBarAlwaysOff);
-    setViewportUpdateMode(::QGraphicsView::FullViewportUpdate);
+    setRenderHint(QPainter::Antialiasing);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
     
-    // Create board squares and highlight items
     setupBoard();
     updateBoard();
 
     if (networkClient_) {
-        connect(networkClient_, &NetworkClient::moveReceived, 
+        // Proper type-safe connection using QByteArray adapter
+        connect(networkClient_, &NetworkClient::rawDataReceived, this,
+            [this](const QByteArray& data) {
+                // Delegate parsing to NetworkClient's processor
+                this->networkClient_->processNetworkData(data);
+            });
+
+        // Connect processed move signals
+        connect(networkClient_, &NetworkClient::moveReceived,
                 this, &ChessBoardView::receiveNetworkMove);
+
+        // Connection status signals
+        connect(networkClient_, &NetworkClient::connected,
+                this, &ChessBoardView::onConnected);
+        connect(networkClient_, &NetworkClient::disconnected,
+                this, &ChessBoardView::onDisconnected);
+        connect(networkClient_, &NetworkClient::errorOccurred,
+                this, &ChessBoardView::onNetworkError);
     }
 }
 
@@ -469,6 +484,7 @@ void ChessBoardView::setTheme(const QString& theme)
     for (auto item : scene_->items()) {
         if (ChessPieceItem* pieceItem = dynamic_cast<ChessPieceItem*>(item)) {
             pieceItem->setTheme(theme);
+            pieceItem->updateSize(scene_->width()/8);  // Force redraw with new theme
         }
     }
     

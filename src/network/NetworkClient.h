@@ -3,11 +3,14 @@
 
 // Include compatibility header first
 #include "../QtCompat.h"
-#include <QObject>
+#include <QtCore/QObject>
 #include <QtCore/QtGlobal>
 #include <QtNetwork/QTcpSocket>
-#include <QString>
-#include <QByteArray>
+#include <QtNetwork/QHostAddress>
+#include <QtNetwork/QAbstractSocket>
+#include <QtNetwork/QNetworkInterface>
+#include <QtCore/QString>
+#include <QtCore/QByteArray>
 
 class NetworkClient : public QObject {
     Q_OBJECT
@@ -24,8 +27,12 @@ public:
 signals:
     void connected();
     void disconnected();
-    void moveReceived(const QByteArray& message);
+    void rawDataReceived(const QByteArray& data);  // Raw network data
+    void moveReceived(const QString& from, const QString& to);
     void errorOccurred(const QString& errorMessage);
+
+public slots:
+    void processNetworkData(const QByteArray& data);
 
 private slots:
     void onConnected();

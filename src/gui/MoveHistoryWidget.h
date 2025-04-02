@@ -31,4 +31,4 @@ private:
     
     void formatMove(const QString& move);
     QString getPieceSymbol(PieceType piece);
-}
+};
