@@ -15,8 +15,8 @@ int main(int argc, char *argv[])
     Q_INIT_RESOURCE(themes);
     
     // Set application information
-    QCoreApplication::setOrganizationName("ChessGame");
-    QCoreApplication::setApplicationName("Chess");
+    QCoreApplication::setOrganizationName("Multiplayer Chess v1.00");
+    QCoreApplication::setApplicationName("MPChess");
     QCoreApplication::setApplicationVersion("1.0");
     
     // Initialize managers

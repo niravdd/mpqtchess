@@ -14,7 +14,7 @@
 #include "../network/NetworkClient.h"
 
 // Helper function to generate chess notation (e.g., "e2-e4")
-QString generateMoveNotation(const Position& from, const Position& to) {
+inline QString generateMoveNotation(const Position& from, const Position& to) {
     char fromFile = 'a' + from.col;
     char toFile = 'a' + to.col;
     int fromRank = 8 - from.row;
@@ -46,6 +46,7 @@ public:
     void setSoundEnabled(bool enabled);
     void updateBoardFromGame();
     void receiveNetworkMove(const QString& fromSquare, const QString& toSquare);
+    void receiveNetworkMove(int fromCol, int fromRow, int toCol, int toRow);
 
     void setNetworkClient(NetworkClient* client);
     NetworkClient* getNetworkClient() const { return networkClient_; }
@@ -67,8 +68,12 @@ private slots:
     // Network-related slots
     void onConnected();
     void onDisconnected();
-    void onMessageReceived(const QByteArray& message);
+//  void onMessageReceived(const QString &from, const QString &to);
     void onNetworkError(const QString& errorMsg);
+    void handleNetworkData(const QByteArray& data);
+
+public slots:
+    void handleParsedMove(int fromCol, int fromRow, int toCol, int toRow);
 
 private:
     void setupBoard();

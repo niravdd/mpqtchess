@@ -8,8 +8,8 @@
 
 ThemeManager& ThemeManager::getInstance()
 {
-    static ThemeManager instance;
-    return instance;
+    static ThemeManager instance_;
+    return instance_;
 }
 
 ThemeManager::ThemeManager() : currentThemeName_("classic")
@@ -33,7 +33,7 @@ bool ThemeManager::loadTheme(const QString& themeName)
     }
 
     // Load theme file
-    QFile themeFile(QString(":/assets/themes/%1.json").arg(themeName));
+    QFile themeFile(QString(":/themes/%1.json").arg(themeName));
     if (!themeFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Failed to open theme file:" << themeFile.fileName();
         return false;
@@ -92,7 +92,7 @@ bool ThemeManager::loadTheme(const QString& themeName)
 QJsonObject ThemeManager::loadThemeFile(const QString& themeName)
 {
     // Construct path to theme file - typically in resources
-    QString themePath = QString(":/themes/%1.json").arg(themeName);
+    QString themePath = QString("/assets/themes/%1.json").arg(themeName);
     
     // Open theme file
     QFile file(themePath);

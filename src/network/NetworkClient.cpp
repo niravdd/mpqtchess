@@ -75,33 +75,65 @@ void NetworkClient::onReadyRead()
     
     int endIndex;
     while ((endIndex = buffer_.indexOf('\n')) != -1) {
-        QByteArray jsonData = buffer_.left(endIndex);
+        const QByteArray rawData = buffer_.left(endIndex);
         buffer_.remove(0, endIndex + 1);
-                
+        
+        // Emit raw data for generic handling
+        emit rawDataReceived(rawData);
+
+        // Parse for moves
         QJsonParseError parseError;
-        QJsonDocument doc = QJsonDocument::fromJson(jsonData, &parseError);
+        QJsonDocument doc = QJsonDocument::fromJson(rawData, &parseError);
         
-        if (parseError.error != ::QJsonParseError::NoError) {
-            emit errorOccurred("Invalid message from server: " + parseError.errorString());
-            continue;
-        }
-        
-        if (!doc.isObject()) {
-            emit errorOccurred("Message is not a JSON object");
-            continue;
-        }
-        
-        QJsonObject obj = doc.object();
-        
-        if (obj["type"].toString() == "move") {
-            QString from = obj["from"].toString();
-            QString to = obj["to"].toString();
+        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+            QJsonObject obj = doc.object();
             
-            if (!from.isEmpty() && !to.isEmpty()) {
-                emit moveReceived(jsonData);
+            if (obj["type"].toString() == "move") {
+                int fromCol, fromRow, toCol, toRow;
+                if (parseMoveData(obj, fromCol, fromRow, toCol, toRow)) {
+                    emit parsedMoveReceived(fromCol, fromRow, toCol, toRow);
+                }
             }
         }
     }
+}
+
+// New move parsing function
+bool NetworkClient::parseMoveData(const QJsonObject& obj, 
+                                 int& fromCol, int& fromRow,
+                                 int& toCol, int& toRow)
+{
+    auto convertNotation = [](const QString& notation) -> std::pair<int, int> {
+        if (notation.length() != 2) return {-1, -1};
+        
+        QChar fileChar = notation[0].toLower();
+        QChar rankChar = notation[1];
+        
+        int col = fileChar.unicode() - 'a';  // a=0, h=7
+        int row = 7 - (rankChar.unicode() - '1');  // Convert to 0-based row index
+        
+        if (col < 0 || col > 7 || row < 0 || row > 7) {
+            return {-1, -1};
+        }
+        return {col, row};
+    };
+
+    QString fromStr = obj["from"].toString();
+    QString toStr = obj["to"].toString();
+    
+    auto [fc, fr] = convertNotation(fromStr);
+    auto [tc, tr] = convertNotation(toStr);
+    
+    if (fc == -1 || fr == -1 || tc == -1 || tr == -1) {
+        emit errorOccurred("Invalid move format: " + fromStr + "->" + toStr);
+        return false;
+    }
+
+    fromCol = fc;
+    fromRow = fr;
+    toCol = tc;
+    toRow = tr;
+    return true;
 }
 
 void NetworkClient::onError(QAbstractSocket::SocketError socketError)
@@ -132,7 +164,7 @@ void NetworkClient::processNetworkData(const QByteArray& data)
     QString to = parts[1].trimmed().left(2);
 
     // Basic chess notation validation
-    QRegularExpression squareRegex("[a-h][1-8]");
+    QRegularExpression squareRegex("^[a-h][1-8]\\$");
     if (!squareRegex.match(from).hasMatch() || !squareRegex.match(to).hasMatch()) {
         qWarning() << "Invalid chess coordinates:" << from << "->" << to;
         return;

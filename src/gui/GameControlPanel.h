@@ -7,6 +7,10 @@
 #include <QtWidgets/QLabel>       // QLabel is a widget
 #include <QtCore/QTimer>            // QTimer is a core functionality
 #include <QtMultimedia/QMediaPlayer>  // QMediaPlayer is in multimedia module
+#include <QtWidgets/QGroupBox>
+#include <QtWidgets/QCheckBox>
+#include <QtWidgets/QSlider>
+#include <QtMultimedia/QAudioOutput>
 
 class GameControlPanel : public QWidget {
     Q_OBJECT
@@ -56,4 +60,7 @@ private:
     bool soundEnabled_;
     int volume_;
     QMediaPlayer* soundPlayer_;
+    QCheckBox* soundCheckBox_ = nullptr;
+    QCheckBox* animationCheckBox_ = nullptr;
+    QSlider* volumeSlider_ = nullptr;
 };

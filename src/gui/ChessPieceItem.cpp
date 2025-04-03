@@ -17,28 +17,53 @@ void ChessPieceItem::updateSize(qreal squareSize)
 {
     lastSquareSize_ = squareSize;
     QString resourcePath = getResourcePath();
-    QSvgRenderer renderer(resourcePath);
+    QPixmap pixmap(resourcePath);
     
     // Create a pixmap of the desired size
-    QPixmap pixmap(squareSize, squareSize);
-    pixmap.fill(::Qt::transparent);  // Ensure transparent background
+    QPixmap scaledPixmap(squareSize, squareSize);
+    scaledPixmap.fill(::Qt::transparent);  // Ensure transparent background
     
-    // Render the SVG to the pixmap
-    QPainter painter(&pixmap);
-    painter.setRenderHint(::QPainter::Antialiasing);
-    painter.setRenderHint(::QPainter::SmoothPixmapTransform);
+    // Scale the pixmap to the desired size
+    scaledPixmap = pixmap.scaled(squareSize, squareSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     
     // Get theme scale factor
-//  qreal scale = Settings::getInstance().getThemeScale(piece_->getColor());
     qreal scale = ThemeManager::getInstance().getCurrentTheme().pieceScale;
     
     // Calculate scaled size and position
     qreal scaledSize = squareSize * scale;
     qreal offset = (squareSize - scaledSize) / 2;
     
-    renderer.render(&painter, QRectF(offset, offset, scaledSize, scaledSize));
-    setPixmap(pixmap);
+    // Draw the scaled pixmap onto the new pixmap
+    QPainter painter(&scaledPixmap);
+    painter.drawPixmap(QRectF(offset, offset, scaledSize, scaledSize), pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()));
+    setPixmap(scaledPixmap);
 }
+
+// void ChessPieceItem::updateSize(qreal squareSize)
+// {
+//     lastSquareSize_ = squareSize;
+//     QString resourcePath = getResourcePath();
+//     QSvgRenderer renderer(resourcePath);
+    
+//     // Create a pixmap of the desired size
+//     QPixmap pixmap(squareSize, squareSize);
+//     pixmap.fill(::Qt::transparent);  // Ensure transparent background
+    
+//     // Render the SVG to the pixmap
+//     QPainter painter(&pixmap);
+//     painter.setRenderHint(::QPainter::Antialiasing);
+//     painter.setRenderHint(::QPainter::SmoothPixmapTransform);
+    
+//     // Get theme scale factor
+//     qreal scale = ThemeManager::getInstance().getCurrentTheme().pieceScale;
+    
+//     // Calculate scaled size and position
+//     qreal scaledSize = squareSize * scale;
+//     qreal offset = (squareSize - scaledSize) / 2;
+    
+//     renderer.render(&painter, QRectF(offset, offset, scaledSize, scaledSize));
+//     setPixmap(pixmap);
+// }
 
 QString ChessPieceItem::getResourcePath() const
 {
@@ -55,8 +80,9 @@ QString ChessPieceItem::getResourcePath() const
         case PieceType::Pawn:   pieceName = "pawn";   break;
         default:                pieceName = "unknown"; break;
     }
-    
-    return QString(":/pieces/%1/%2_%3.svg")
+
+//  return QString(":/pieces/%1/%2_%3.svg")
+    return QString(":/pieces/%1/%2_%3.png")
            .arg(themeName)
            .arg(color)
            .arg(pieceName);

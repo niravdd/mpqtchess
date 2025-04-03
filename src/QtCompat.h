@@ -1,11 +1,14 @@
 #pragma once
 
 // Ensure we include the actual Qt headers before any forward declarations
-#include <QtCore>
-#include <QtGui>
-#include <QtNetwork>
-#include <QtWidgets>
-#include <QtMultimedia>
+#include <QtCore/QtCore>          // All core functionality
+#include <QtGui/QtGui>            // GUI painting, palettes
+#include <QtWidgets/QtWidgets>    // Widget classes
+#include <QtNetwork/QtNetwork>    // Networking classes
+#include <QtMultimedia/QtMultimedia>
+#include <QtWidgets/QApplication>  // For QApplication and general widgets
+#include <QtGui/QPainter>          // For painting functionality
+#include <QtGui/QPalette>          // For palette management
 
 // Remove any forward declarations that might conflict with Qt's types
 // Do NOT forward declare built-in Qt types like QString
@@ -24,4 +27,4 @@ class ChessBoard;
 // Optional: Ensure full inclusion of necessary headers
 #include <QString>
 #include <QObject>
-#include <QMediaPlayer>
+#include <QtMultimedia/QMediaPlayer>

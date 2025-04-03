@@ -17,7 +17,7 @@ cmake -DCMAKE_PREFIX_PATH=/Users/niravdd/Qt/6.5.3/macos \
       ..
 
 echo "== Building project =="
-cmake --build .
+cmake --build . -j 8
 
 echo "== Build completed successfully =="
 echo "== Binaries location: \$(pwd)/bin =="

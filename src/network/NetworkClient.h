@@ -27,8 +27,9 @@ public:
 signals:
     void connected();
     void disconnected();
-    void rawDataReceived(const QByteArray& data);  // Raw network data
+    void rawDataReceived(const QByteArray& data);  // Raw network data, for non-move messages
     void moveReceived(const QString& from, const QString& to);
+    void parsedMoveReceived(int fromCol, int fromRow, int toCol, int toRow);
     void errorOccurred(const QString& errorMessage);
 
 public slots:
@@ -43,4 +44,6 @@ private slots:
 private:
     QTcpSocket* socket_;
     QByteArray buffer_;
+
+    bool parseMoveData(const QJsonObject& obj, int& fromCol, int& fromRow, int& toCol, int& toRow);
 };

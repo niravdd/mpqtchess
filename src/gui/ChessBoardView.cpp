@@ -27,22 +27,15 @@ ChessBoardView::ChessBoardView(QWidget* parent, NetworkClient* networkClient)
     updateBoard();
 
     if (networkClient_) {
-        // Proper type-safe connection using QByteArray adapter
-        connect(networkClient_, &NetworkClient::rawDataReceived, this,
-            [this](const QByteArray& data) {
-                // Delegate parsing to NetworkClient's processor
-                this->networkClient_->processNetworkData(data);
-            });
-
-        // Connect processed move signals
-        connect(networkClient_, &NetworkClient::moveReceived,
-                this, &ChessBoardView::receiveNetworkMove);
-
         // Connection status signals
         connect(networkClient_, &NetworkClient::connected,
                 this, &ChessBoardView::onConnected);
         connect(networkClient_, &NetworkClient::disconnected,
                 this, &ChessBoardView::onDisconnected);
+        connect(networkClient_, &NetworkClient::rawDataReceived,
+                this, &ChessBoardView::handleNetworkData);
+        connect(networkClient_, &NetworkClient::parsedMoveReceived,
+                this, &ChessBoardView::handleParsedMove);
         connect(networkClient_, &NetworkClient::errorOccurred,
                 this, &ChessBoardView::onNetworkError);
     }
@@ -247,6 +240,11 @@ void ChessBoardView::receiveNetworkMove(const QString& fromSquare, const QString
     }
 }
 
+void ChessBoardView::receiveNetworkMove(int fromCol, int fromRow, int toCol, int toRow)
+{
+    handleParsedMove(fromCol, fromRow, toCol, toRow);
+}
+
 void ChessBoardView::highlightLegalMoves(const QPoint& pos)
 {
     clearHighlights();
@@ -372,7 +370,7 @@ bool ChessBoardView::connectToServer(const QString& host, quint16 port)
         // Connect signals from network client
         connect(networkClient_, &NetworkClient::connected, this, &ChessBoardView::onConnected);
         connect(networkClient_, &NetworkClient::disconnected, this, &ChessBoardView::onDisconnected);
-        connect(networkClient_, &NetworkClient::moveReceived, this, &ChessBoardView::onMessageReceived);
+        connect(networkClient_, &NetworkClient::parsedMoveReceived, this, &ChessBoardView::handleParsedMove);
         connect(networkClient_, &NetworkClient::errorOccurred, this, &ChessBoardView::onNetworkError);
     }
     
@@ -551,61 +549,61 @@ void ChessBoardView::onDisconnected()
     emit statusChanged(tr("Disconnected from server"));
 }
 
-void ChessBoardView::onMessageReceived(const QByteArray& message)
-{
-    // Process received message - implementation depends on your network protocol
-    QJsonDocument doc = QJsonDocument::fromJson(message);
-    if (doc.isNull() || !doc.isObject()) {
-        emit statusChanged(tr("Received invalid message from server"));
-        return;
-    }
+// void ChessBoardView::onMessageReceived(const QByteArray& message)
+// {
+//     // Process received message - implementation depends on your network protocol
+//     QJsonDocument doc = QJsonDocument::fromJson(message);
+//     if (doc.isNull() || !doc.isObject()) {
+//         emit statusChanged(tr("Received invalid message from server"));
+//         return;
+//     }
     
-    QJsonObject msgObj = doc.object();
-    QString type = msgObj["type"].toString();
+//     QJsonObject msgObj = doc.object();
+//     QString type = msgObj["type"].toString();
     
-    if (type == "move") {
-        // Handle move from opponent
-        int fromRow = msgObj["fromRow"].toInt();
-        int fromCol = msgObj["fromCol"].toInt();
-        int toRow = msgObj["toRow"].toInt();
-        int toCol = msgObj["toCol"].toInt();
+//     if (type == "move") {
+//         // Handle move from opponent
+//         int fromRow = msgObj["fromRow"].toInt();
+//         int fromCol = msgObj["fromCol"].toInt();
+//         int toRow = msgObj["toRow"].toInt();
+//         int toCol = msgObj["toCol"].toInt();
         
-        QPoint fromPos(fromCol, fromRow);
-        QPoint toPos(toCol, toRow);
+//         QPoint fromPos(fromCol, fromRow);
+//         QPoint toPos(toCol, toRow);
         
-        if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
-            updateBoard();
-            emit moveCompleted(generateMoveNotation(fromPos, toPos));
+//         if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
+//             updateBoard();
+//             emit moveCompleted(generateMoveNotation(fromPos, toPos));
             
-            // Check game state
-            if (game_->isCheckmate(game_->getCurrentTurn())) {
-                emit gameOver(tr("Checkmate! %1 wins!")
-                    .arg(game_->getCurrentTurn() == PieceColor::White ? 
-                         "Black" : "White"));
-            } else if (game_->isStalemate(game_->getCurrentTurn())) {
-                emit gameOver(tr("Stalemate! Game is drawn."));
-            }
-        }
-    }
-    else if (type == "game_start") {
-        // Handle game start
-        resetGame();
+//             // Check game state
+//             if (game_->isCheckmate(game_->getCurrentTurn())) {
+//                 emit gameOver(tr("Checkmate! %1 wins!")
+//                     .arg(game_->getCurrentTurn() == PieceColor::White ? 
+//                          "Black" : "White"));
+//             } else if (game_->isStalemate(game_->getCurrentTurn())) {
+//                 emit gameOver(tr("Stalemate! Game is drawn."));
+//             }
+//         }
+//     }
+//     else if (type == "game_start") {
+//         // Handle game start
+//         resetGame();
         
-        // Set player color
-        QString color = msgObj["color"].toString();
-        playerColor_ = (color == "white") ? PieceColor::White : PieceColor::Black;
+//         // Set player color
+//         QString color = msgObj["color"].toString();
+//         playerColor_ = (color == "white") ? PieceColor::White : PieceColor::Black;
         
-        emit statusChanged(tr("Game started. You are playing as %1")
-            .arg(playerColor_ == PieceColor::White ? "white" : "black"));
-    }
-    else if (type == "chat") {
-        // Handle chat messages
-        QString sender = msgObj["sender"].toString();
-        QString content = msgObj["content"].toString();
+//         emit statusChanged(tr("Game started. You are playing as %1")
+//             .arg(playerColor_ == PieceColor::White ? "white" : "black"));
+//     }
+//     else if (type == "chat") {
+//         // Handle chat messages
+//         QString sender = msgObj["sender"].toString();
+//         QString content = msgObj["content"].toString();
         
-        emit statusChanged(tr("%1: %2").arg(sender).arg(content));
-    }
-}
+//         emit statusChanged(tr("%1: %2").arg(sender).arg(content));
+//     }
+// }
 
 void ChessBoardView::onNetworkError(const QString& errorMsg)
 {
@@ -623,7 +621,54 @@ void ChessBoardView::setNetworkClient(NetworkClient* client)
     
     // Connect to new client
     if (networkClient_) {
-        connect(networkClient_, &NetworkClient::moveReceived,
-                this, &ChessBoardView::receiveNetworkMove);
+        connect(networkClient_, &NetworkClient::parsedMoveReceived,
+                this, &ChessBoardView::handleParsedMove);
+    }
+}
+
+// New move handling with coordinates
+void ChessBoardView::handleParsedMove(int fromCol, int fromRow, int toCol, int toRow)
+{
+    QPoint fromPos(fromCol, fromRow);
+    QPoint toPos(toCol, toRow);
+    
+    if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
+        updateBoard();
+        emit moveCompleted(generateMoveNotation(
+            {fromCol, fromRow}, {toCol, toRow}));
+        
+        // Update game state checks
+        if (game_->isCheckmate(game_->getCurrentTurn())) {
+            emit gameOver(tr("Checkmate! %1 wins!")
+                .arg(game_->getCurrentTurn() == PieceColor::White ? "Black" : "White"));
+        } else if (game_->isStalemate(game_->getCurrentTurn())) {
+            emit gameOver(tr("Stalemate! Game is drawn."));
+        }
+    }
+}
+
+void ChessBoardView::handleNetworkData(const QByteArray& data)
+{
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isNull() || !doc.isObject()) {
+        emit statusChanged("Invalid network message");
+        return;
+    }
+    
+    QJsonObject obj = doc.object();
+    QString type = obj["type"].toString();
+    
+    if (type == "game_start") {
+        resetGame();
+        playerColor_ = obj["color"].toString().compare("white", Qt::CaseInsensitive) == 0
+            ? PieceColor::White 
+            : PieceColor::Black;
+        emit statusChanged(tr("Game started. You are %1")
+            .arg(playerColor_ == PieceColor::White ? "white" : "black"));
+    }
+    else if (type == "chat") {
+        emit statusChanged(tr("[Chat] %1: %2")
+            .arg(obj["sender"].toString())
+            .arg(obj["content"].toString()));
     }
 }

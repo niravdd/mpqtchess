@@ -93,6 +93,11 @@ bool Settings::isSoundEnabled() const
     return soundEnabled_;
 }
 
+bool Settings::getSoundEnabled() const
+{
+    return soundEnabled_;
+}
+
 void Settings::setSoundEnabled(bool enabled)
 {
     soundEnabled_ = enabled;
@@ -101,6 +106,16 @@ void Settings::setSoundEnabled(bool enabled)
 int Settings::getSoundVolume() const
 {
     return volume_;
+}
+
+int Settings::getVolume() const
+{
+    return volume_;
+}
+
+void Settings::setVolume(int volume)
+{
+    volume_ = volume;
 }
 
 void Settings::setSoundVolume(int volume)

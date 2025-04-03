@@ -89,10 +89,10 @@ add_executable(chess_client
     src/util/Settings.cpp
     src/util/SoundManager.cpp
     src/util/ThemeManager.cpp
-    
+
     # Resource files
     assets/pieces.qrc
-    assets/sounds.qrc
+    assets/sounds.qrc 
     assets/themes.qrc
 )
 
@@ -100,7 +100,6 @@ add_executable(chess_client
 add_executable(chess_server
     # Main files
     server/main.cpp
-    server/server.cpp
     
     # Core files
     src/core/ChessBoard.cpp

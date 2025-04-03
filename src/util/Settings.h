@@ -15,9 +15,12 @@ public:
     
     // Sound settings
     bool isSoundEnabled() const;
+    bool getSoundEnabled() const;
     void setSoundEnabled(bool enabled);
     int getSoundVolume() const;
     void setSoundVolume(int volume);
+    int getVolume() const;
+    void setVolume(int volume);
     
     // Game settings
     int getTimeControl() const;

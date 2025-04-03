@@ -1,9 +1,10 @@
 // src/gui/GameControlPanel.cpp
+
+#include "../util/Settings.h"
 #include "GameControlPanel.h"
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QGroupBox>
-#include <QtMultimedia/QAudioOutput>
+
 
 GameControlPanel::GameControlPanel(QWidget* parent)
     : QWidget(parent)
@@ -75,6 +76,40 @@ void GameControlPanel::setupUI()
     pauseBtn_->setEnabled(false);
     drawBtn_->setEnabled(false);
     resignBtn_->setEnabled(false);
+
+    // Add settings controls
+    QGroupBox* settingsGroup = new QGroupBox(tr("Preferences"));
+    QVBoxLayout* settingsLayout = new QVBoxLayout;
+
+    // Sound controls
+    soundCheckBox_ = new QCheckBox(tr("Enable Sound"), this);
+    volumeSlider_ = new QSlider(Qt::Horizontal, this);
+    volumeSlider_->setRange(0, 100);
+    
+    // Animation controls
+    animationCheckBox_ = new QCheckBox(tr("Enable Animations"), this);
+
+    // Add to layout
+    settingsLayout->addWidget(soundCheckBox_);
+    settingsLayout->addWidget(new QLabel(tr("Volume:")));
+    settingsLayout->addWidget(volumeSlider_);
+    settingsLayout->addWidget(animationCheckBox_);
+    settingsGroup->setLayout(settingsLayout);
+
+    mainLayout->addWidget(settingsGroup);
+    
+    // Connect settings signals
+    connect(soundCheckBox_, &QCheckBox::toggled, this, [this](bool checked) {
+        Settings::getInstance().setSoundEnabled(checked);
+    });
+    
+    connect(volumeSlider_, &QSlider::valueChanged, this, [this](int value) {
+        Settings::getInstance().setVolume(value);
+    });
+    
+    connect(animationCheckBox_, &QCheckBox::toggled, this, [this](bool checked) {
+        Settings::getInstance().setAnimationsEnabled(checked);
+    });
 }
 
 void GameControlPanel::updateClocks()
@@ -196,34 +231,28 @@ void GameControlPanel::applySettings()
     Settings& settings = Settings::getInstance();
     
     // Update sound settings
-    bool soundEnabled = settings.getSoundEnabled();
-    soundCheckBox_->setChecked(soundEnabled);
+    soundCheckBox_->setChecked(settings.getSoundEnabled());
     
     // Update animation settings if applicable
-    bool animationsEnabled = settings.getAnimationsEnabled();
-    animationCheckBox_->setChecked(animationsEnabled);
+    animationCheckBox_->setChecked(settings.getAnimationsEnabled());
     
     // Update volume slider if present
     if (volumeSlider_) {
-        int volume = settings.getVolume();
-        volumeSlider_->setValue(volume);
+        volumeSlider_->setValue(settings.getVolume());
     }
     
     // Update any theme-specific UI elements
-    const QString& theme = settings.getTheme();
+    const QString& theme = settings.getCurrentTheme();
     
     // If your control panel has theme-dependent visuals, update them here
     // For example, update button styles or colors based on theme
     
     // Apply style sheets if needed
     if (theme == "dark") {
-        setStyleSheet("background-color: #333; color: white;");
+        setStyleSheet("GameControlPanel { background: #333; color: white; }");
     } else {
         setStyleSheet(""); // Use default style
     }
-    
-    // If there are other theme-specific settings to apply
-    // Add them here
     
     // Refresh the panel
     update();

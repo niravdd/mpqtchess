@@ -11,7 +11,6 @@ class ThemeManager : public QObject {
     Q_OBJECT
 
 public:
-    explicit ThemeManager(QObject *parent = nullptr);
     static ThemeManager& getInstance();
 
     struct ThemeColors {
