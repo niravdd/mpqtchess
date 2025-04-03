@@ -1,6 +1,6 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
-    <qresource prefix="/themes">
+    <qresource prefix="/">
         <file>themes/classic.json</file>
         <file>themes/modern.json</file>
         <file>themes/minimalist.json</file>

@@ -1,6 +1,6 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
-    <qresource prefix="/sounds">
+    <qresource prefix="/">
         <file>sounds/move.wav</file>
         <file>sounds/capture.wav</file>
         <file>sounds/check.wav</file>
