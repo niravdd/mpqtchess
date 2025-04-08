@@ -39,6 +39,14 @@ ChessBoardView::ChessBoardView(QWidget* parent, NetworkClient* networkClient)
         connect(networkClient_, &NetworkClient::errorOccurred,
                 this, &ChessBoardView::onNetworkError);
     }
+
+#ifdef QT_DEBUG
+    // Enable core dumps or more detailed crash reporting
+    signal(SIGSEGV, [](int) {
+        qDebug() << "Segmentation fault occurred!";
+        abort();
+    });
+#endif
 }
 
 void ChessBoardView::setupBoard()
@@ -122,18 +130,40 @@ void ChessBoardView::resizeEvent(QResizeEvent* event)
 
 void ChessBoardView::mousePressEvent(QMouseEvent* event)
 {
-    QPoint boardPos = boardPositionAt(mapToScene(event->pos()));
+    // Convert mouse position to board coordinates
+    QPointF scenePos = mapToScene(event->pos());
+    QPoint boardPos = boardPositionAt(scenePos);
+
+    qDebug() << "Mouse Press: Scene Pos" << scenePos 
+             << "Board Pos" << boardPos 
+             << "Player Color" << (playerColor_ == PieceColor::White ? "White" : "Black");
+
+    // Validate board position
     if (!game_->isValidPosition(boardPos)) {
+        QDebug(QtMsgType::QtWarningMsg) << "Invalid board position: " << boardPos;
         return;
     }
     
+    // Get the piece at the clicked position
     auto piece = game_->getPieceAt(boardPos);
+    
+    // Check if piece exists and it's the current player's turn
     if (piece && piece->getColor() == game_->getCurrentTurn()) {
-        selectedPiece_ = dynamic_cast<ChessPieceItem*>(itemAt(event->pos()));
-        if (selectedPiece_) {
-            dragStartPos_ = selectedPiece_->pos();
-            selectedPiece_->setZValue(2); // Bring to front
-            highlightLegalMoves(boardPos);
+        // Find the corresponding ChessPieceItem
+        for (auto item : scene_->items(scenePos)) {
+            if (ChessPieceItem* pieceItem = dynamic_cast<ChessPieceItem*>(item)) {
+                selectedPiece_ = pieceItem;
+                dragStartPos_ = scenePos;
+
+                qDebug() << "Piece Selected: " 
+                         << (piece->getColor() == PieceColor::White ? "White" : "Black")
+                         << "Piece Type: " << pieceTypeToString(piece->getType());
+                
+                // Bring the piece to front and highlight legal moves
+                selectedPiece_->setZValue(2);
+                highlightLegalMoves(boardPos);
+                break;
+            }
         }
     }
 }
@@ -141,35 +171,60 @@ void ChessBoardView::mousePressEvent(QMouseEvent* event)
 void ChessBoardView::mouseMoveEvent(QMouseEvent* event)
 {
     if (selectedPiece_) {
-        QPointF newPos = mapToScene(event->pos()) - 
-                                QPointF(selectedPiece_->boundingRect().width() / 2,
-                                selectedPiece_->boundingRect().height() / 2);
-        selectedPiece_->setPos(newPos);
+        // Map mouse position to scene coordinates
+        QPointF scenePos = mapToScene(event->pos());
+        
+        // Center the piece on the mouse cursor
+        QPointF offset(selectedPiece_->boundingRect().width() / 2, 
+                       selectedPiece_->boundingRect().height() / 2);
+        selectedPiece_->setPos(scenePos - offset);
     }
 }
 
 void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (selectedPiece_) {
+    if (!selectedPiece_)
+    {
+        return;
+    }
+    try
+    {    
+        // Convert start and end positions to board coordinates
         QPoint fromPos = boardPositionAt(dragStartPos_);
         QPoint toPos = boardPositionAt(mapToScene(event->pos()));
-        
+
+        // Extensive validation before move
+        if (!game_)
+        {
+            qDebug() << "Game logic is null!";
+            return;
+        }
+
+        qDebug() << "Move Attempt: From" << fromPos << "To" << toPos
+                 << "Current Player" << ((game_->getCurrentPlayer() == PieceColor::White) ? "White" : "Black");
+
+        // Validate and attempt to make the move
         if (game_->isValidMove(fromPos, toPos, game_->getCurrentPlayer())) {
-            // Attempt to make the move
             if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
+                // Update board and generate move notation
                 updateBoard();
                 QString moveNotation = generateMoveNotation(fromPos, toPos);
                 emit moveCompleted(moveNotation);
+
+                qDebug() << "Move Successful: " << moveNotation;
                 
                 // Send move over network if connected
-                if (networkClient_ && networkClient_->isConnected()) {
-                    // Convert board positions to algebraic notation for network
+                if (networkClient_ && networkClient_->isConnected())
+                {
                     QString fromSquare = positionToAlgebraic(fromPos);
                     QString toSquare = positionToAlgebraic(toPos);
+
+                    qDebug() << "fromSquare: " << fromSquare << " and toSquare: " << toSquare;
+
                     networkClient_->sendMove(fromSquare, toSquare);
                 }
                 
-                // Check game state
+                // Check for game-ending conditions
                 if (game_->isCheckmate(game_->getCurrentTurn())) {
                     emit gameOver(tr("Checkmate! %1 wins!")
                         .arg(game_->getCurrentTurn() == PieceColor::White ? 
@@ -177,16 +232,49 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
                 } else if (game_->isStalemate(game_->getCurrentTurn())) {
                     emit gameOver(tr("Stalemate! Game is drawn."));
                 }
+            } else {
+                qDebug() << "Move failed in game logic";
+
+                // Invalid move, return piece to original position
+                selectedPiece_->setPos(dragStartPos_);
             }
         } else {
-            // Invalid move, return piece to original position
+            qDebug() << "Invalid move validation";
+
+            // Move not valid, return piece to original position
             selectedPiece_->setPos(dragStartPos_);
         }
+    }
+    catch (const std::exception& e)
+    {
+        qDebug() << "Exception in mouseReleaseEvent:" << e.what();
+    }
+    catch (...)
+    {
+        qDebug() << "Unknown exception in mouseReleaseEvent";
+    }
         
+    // Always reset piece selection and highlights
+    if (selectedPiece_) {
         selectedPiece_->setZValue(1);
         selectedPiece_ = nullptr;
-        clearHighlights();
     }
+
+    clearHighlights();
+}
+
+void ChessBoardView::updatePlayerStatusLabel()
+{
+    // Assuming you have a QLabel in your control panel or game interface
+    QString playerColorStr = (playerColor_ == PieceColor::White) ? "White" : "Black";
+    QString currentTurnStr = (game_->getCurrentTurn() == PieceColor::White) ? "White" : "Black";
+    
+    QString statusText = QString("You are playing %1 | Current Turn: %2")
+        .arg(playerColorStr)
+        .arg(currentTurnStr);
+    
+    // You'll need to connect this to your game control panel
+    emit updateStatusLabel(statusText);
 }
 
 QString ChessBoardView::positionToAlgebraic(const QPoint& pos) const
@@ -220,7 +308,11 @@ void ChessBoardView::receiveNetworkMove(const QString& fromSquare, const QString
     QPoint toPos = algebraicToPosition(toSquare);
     
     if (fromPos.x() < 0 || toPos.x() < 0)
+    {
+        qDebug() << "Invalid network move positions";
+
         return;  // Invalid positions
+    }
         
     // Execute the move from the network
     if (game_->isValidMove(fromPos, toPos, game_->getCurrentPlayer())) {
@@ -264,6 +356,16 @@ QPoint ChessBoardView::boardPositionAt(const QPointF& pos) const
     qreal squareSize = scene_->width() / 8;
     int col = static_cast<int>(pos.x() / squareSize);
     int row = static_cast<int>(pos.y() / squareSize);
+    
+    // Adjust for player perspective
+    if (playerColor_ == PieceColor::Black) {
+        col = 7 - col;
+        row = 7 - row;
+    }
+    
+    qDebug() << "BoardPositionAt: Original Pos" << QPoint(col, row)
+             << "Player Color" << (playerColor_ == PieceColor::White ? "White" : "Black");
+    
     return QPoint(col, row);
 }
 
@@ -279,17 +381,34 @@ void ChessBoardView::updateBoard()
     
     // Add pieces from current game state
     qreal squareSize = scene_->width() / 8;
+    
+    // Determine board orientation based on player color
+    bool isWhiteAtBottom = (playerColor_ == PieceColor::White);
+    
     for (int row = 0; row < 8; ++row) {
         for (int col = 0; col < 8; ++col) {
+            // Calculate the effective row based on player perspective
+            int effectiveRow = isWhiteAtBottom ? row : 7 - row;
+            int effectiveCol = isWhiteAtBottom ? col : 7 - col;
+            
             auto piece = game_->getPieceAt(QPoint(col, row));
             if (piece) {
                 auto pieceItem = new ChessPieceItem(piece);
-                pieceItem->setPos(col * squareSize, row * squareSize);
+                
+                // Position pieces based on player perspective
+                pieceItem->setPos(effectiveCol * squareSize, 
+                                  effectiveRow * squareSize);
                 pieceItem->updateSize(squareSize);
                 scene_->addItem(pieceItem);
             }
         }
     }
+
+    updatePlayerStatusLabel();
+
+    // Debug logging
+    qDebug() << "UpdateBoard: Player Color" 
+             << (playerColor_ == PieceColor::White ? "White" : "Black");
 }
 
 void ChessBoardView::updateBoardFromGame()
@@ -543,6 +662,10 @@ QString ChessBoardView::getCurrentTheme() const
 void ChessBoardView::onConnected()
 {
     emit statusChanged(tr("Connected to server"));
+
+    // Reset game and update board upon connection
+    resetGame();
+    updateBoard();  // Explicitly update board after connection
 }
 
 void ChessBoardView::onDisconnected()
@@ -633,18 +756,42 @@ void ChessBoardView::handleParsedMove(int fromCol, int fromRow, int toCol, int t
     QPoint fromPos(fromCol, fromRow);
     QPoint toPos(toCol, toRow);
     
-    if (game_->makeMove(fromPos, toPos, game_->getCurrentPlayer())) {
-        updateBoard();
-        emit moveCompleted(generateMoveNotation(
-            {fromCol, fromRow}, {toCol, toRow}));
-        
-        // Update game state checks
-        if (game_->isCheckmate(game_->getCurrentTurn())) {
-            emit gameOver(tr("Checkmate! %1 wins!")
-                .arg(game_->getCurrentTurn() == PieceColor::White ? "Black" : "White"));
-        } else if (game_->isStalemate(game_->getCurrentTurn())) {
-            emit gameOver(tr("Stalemate! Game is drawn."));
+    // Add detailed logging
+    qDebug() << "Network Move Received:"
+             << "From: (" << fromCol << "," << fromRow << ")"
+             << "To: (" << toCol << "," << toRow << ")"
+             << "Current Player:" << ((game_->getCurrentTurn() == PieceColor::White) ? "White" : "Black");
+
+    qDebug() << "Received Network Move: From" 
+             << QPoint(fromCol, fromRow) 
+             << "To" 
+             << QPoint(toCol, toRow)
+             << "Current Player:" << ((game_->getCurrentTurn() == PieceColor::White) ? "White" : "Black");
+
+    // Determine opponent's color
+    PieceColor opponentColor = (game_->getCurrentTurn() == PieceColor::White) 
+                                ? PieceColor::Black 
+                                : PieceColor::White;
+
+    // Validate move before execution
+    if (game_->isValidMove(fromPos, toPos, opponentColor)) {
+        if (game_->makeMove(fromPos, toPos, opponentColor)) {
+            updateBoard();
+//          emit moveCompleted(generateMoveNotation({fromCol, fromRow}, {toCol, toRow}));
+            emit moveCompleted(generateMoveNotation(fromPos, toPos));
+
+            // Game state checks
+            if (game_->isCheckmate(game_->getCurrentTurn())) {
+                emit gameOver(tr("Checkmate! %1 wins!")
+                    .arg(game_->getCurrentTurn() == PieceColor::White ? "Black" : "White"));
+            } else if (game_->isStalemate(game_->getCurrentTurn())) {
+                emit gameOver(tr("Stalemate! Game is drawn."));
+            }
+        } else {
+            qDebug() << "Network move failed: Invalid move execution";
         }
+    } else {
+        qDebug() << "Network move failed: Invalid move validation";
     }
 }
 
@@ -660,10 +807,19 @@ void ChessBoardView::handleNetworkData(const QByteArray& data)
     QString type = obj["type"].toString();
     
     if (type == "game_start") {
-        resetGame();
+        qDebug() << "Game Start Received from Colour [" << obj["color"].toString() << "] from server:";
+        qDebug() << "Full JSON:" << obj;
+    
         playerColor_ = obj["color"].toString().compare("white", Qt::CaseInsensitive) == 0
             ? PieceColor::White 
             : PieceColor::Black;
+
+        qDebug() << "Player Colour Set: " 
+            << (playerColor_ == PieceColor::White ? "White" : "Black");
+
+        resetGame();
+        updateBoard();  // Explicitly update board after game start
+
         emit statusChanged(tr("Game started. You are %1")
             .arg(playerColor_ == PieceColor::White ? "white" : "black"));
     }

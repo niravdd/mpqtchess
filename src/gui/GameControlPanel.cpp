@@ -73,6 +73,7 @@ void GameControlPanel::setupUI()
     mainLayout->addWidget(controlGroup);
     mainLayout->addStretch();
     
+    startBtn_->setEnabled(false);
     pauseBtn_->setEnabled(false);
     drawBtn_->setEnabled(false);
     resignBtn_->setEnabled(false);
@@ -256,4 +257,70 @@ void GameControlPanel::applySettings()
     
     // Refresh the panel
     update();
+}
+
+void GameControlPanel::swapTurn()
+{
+    isWhiteTurn_ = !isWhiteTurn_;
+    turnLabel_->setText(isWhiteTurn_ ? tr("White to move") : tr("Black to move"));
+}
+
+void GameControlPanel::setTurn(bool isWhite)
+{
+    isWhiteTurn_ = isWhite;
+    turnLabel_->setText(isWhiteTurn_ ? tr("White to move") : tr("Black to move"));
+}
+
+void GameControlPanel::setWhiteTime(int time)
+{
+    whiteTimeLeft_ = time;
+    QString whiteTime = QString("%1:%2")
+        .arg(whiteTimeLeft_ / 60, 2, 10, QChar('0'))
+        .arg(whiteTimeLeft_ % 60, 2, 10, QChar('0'));
+    whiteTimer_->display(whiteTime);
+}
+
+void GameControlPanel::setBlackTime(int time)
+{
+    blackTimeLeft_ = time;
+    QString blackTime = QString("%1:%2")
+        .arg(blackTimeLeft_ / 60, 2, 10, QChar('0'))
+        .arg(blackTimeLeft_ % 60, 2, 10, QChar('0'));
+    blackTimer_->display(blackTime);
+}
+
+void GameControlPanel::setGameActive(bool active)
+{
+    gameActive_ = active;
+    startBtn_->setEnabled(!active);
+    pauseBtn_->setEnabled(active);
+    drawBtn_->setEnabled(active);
+    resignBtn_->setEnabled(active);
+}
+
+void GameControlPanel::setGamePaused(bool paused)
+{
+    if (paused) {
+        gameTimer_->stop();
+        pauseBtn_->setText(tr("Resume"));
+    } else {
+        gameTimer_->start(1000);
+        pauseBtn_->setText(tr("Pause"));
+    }
+    gameActive_ = !paused;
+}
+
+void GameControlPanel::setDrawOffered(bool offered)
+{
+    drawBtn_->setEnabled(!offered);
+}
+
+void GameControlPanel::setResignEnabled(bool enabled)
+{
+    resignBtn_->setEnabled(enabled);
+}
+
+void GameControlPanel::setStartEnabled(bool enabled)
+{
+    startBtn_->setEnabled(enabled);
 }

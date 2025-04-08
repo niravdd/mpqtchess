@@ -38,6 +38,9 @@ MainWindow::MainWindow(QWidget* parent)
     createToolBars();
     loadSettings();
     
+    // Disable start buttons by default
+    controlPanel_->setStartEnabled(false);
+
     // Connect signals/slots
     connect(controlPanel_, &GameControlPanel::newGameRequested,
             this, &MainWindow::newGame);
@@ -279,14 +282,31 @@ void MainWindow::handleThemeChanged(const QString& theme)
 void MainWindow::onNetworkConnected()
 {
     statusBar()->showMessage(tr("Connected to server"));
+
+    // Enable start buttons after successful network connection
+    controlPanel_->setStartEnabled(true);
+    
+    // Optional: Log connection success
+    qDebug() << "Network connected: Start buttons enabled";
 }
 
 void MainWindow::onNetworkDisconnected()
 {
     statusBar()->showMessage(tr("Disconnected from server"));
+
+    // Disable start buttons on network disconnection
+    controlPanel_->setStartEnabled(false);
+    
+    qDebug() << "Network disconnected: Start buttons disabled";
 }
 
 void MainWindow::onNetworkError(const QString& error)
 {
     statusBar()->showMessage(tr("Network error: %1").arg(error));
+
+    // Disable start buttons on network error
+    controlPanel_->setStartEnabled(false);
+    
+    // Show error message
+    QMessageBox::critical(this, tr("Network Error"), error);
 }

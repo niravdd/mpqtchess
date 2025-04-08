@@ -21,8 +21,17 @@ public:
     void resetClock();
     void setSoundSettings(bool enabled, int volume);
     bool isSoundEnabled() const { return soundEnabled_; }
-    int getVolume() const { return volume_; }
-    
+    int  getVolume() const { return volume_; }
+    void swapTurn();
+    void setTurn(bool isWhite);
+    void setWhiteTime(int time);
+    void setBlackTime(int time);
+    void setStartEnabled(bool enabled);
+    void setGameActive(bool active);
+    void setGamePaused(bool paused);
+    void setDrawOffered(bool offered);
+    void setResignEnabled(bool enabled);
+
 public slots:
     void applySettings();
     void startGame();

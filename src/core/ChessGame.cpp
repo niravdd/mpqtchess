@@ -161,33 +161,33 @@ void ChessGame::recordMove(const Move& move, PieceType piece)
 bool ChessGame::isValidMove(const Position& from, const Position& to, 
     PieceColor playerColor) const
 {
-// Check position bounds
+    // Check position bounds
     if (!board_->isValidPosition(from) || !board_->isValidPosition(to)) {
         return false;
     }
 
-// Check if source piece exists and belongs to the player
-auto piece = board_->getPieceAt(from);
-if (!piece || piece->getColor() != playerColor) {
-    return false;
-}
-
-// Check if target square contains player's own piece
-auto targetPiece = board_->getPieceAt(to);
-if (targetPiece && targetPiece->getColor() == playerColor) {
-    return false;
-}
-
-// Handle special moves
-if (piece->getType() == PieceType::King && abs(from.col - to.col) == 2) {
-    return isValidCastling(from, to, playerColor);
-}
-
-if (piece->getType() == PieceType::Pawn) {
-    if (from.col != to.col && !targetPiece) {
-        return isValidEnPassant(from, to, playerColor);
+    // Check if source piece exists and belongs to the player
+    auto piece = board_->getPieceAt(from);
+    if (!piece || piece->getColor() != playerColor) {
+        return false;
     }
-}
+
+    // Check if target square contains player's own piece
+    auto targetPiece = board_->getPieceAt(to);
+    if (targetPiece && targetPiece->getColor() == playerColor) {
+        return false;
+    }
+
+    // Handle special moves
+    if (piece->getType() == PieceType::King && abs(from.col - to.col) == 2) {
+        return isValidCastling(from, to, playerColor);
+    }
+
+    if (piece->getType() == PieceType::Pawn) {
+        if (from.col != to.col && !targetPiece) {
+            return isValidEnPassant(from, to, playerColor);
+        }
+    }
 
     // Check if the move is in the piece's possible moves
     auto possibleMoves = board_->getPossibleMoves(from);

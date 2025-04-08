@@ -12,6 +12,7 @@
 #include "../core/Position.h"
 #include "../util/Settings.h"
 #include "../network/NetworkClient.h"
+#include "../core/ChessPiece.h"
 
 // Helper function to generate chess notation (e.g., "e2-e4")
 inline QString generateMoveNotation(const Position& from, const Position& to) {
@@ -47,6 +48,7 @@ public:
     void updateBoardFromGame();
     void receiveNetworkMove(const QString& fromSquare, const QString& toSquare);
     void receiveNetworkMove(int fromCol, int fromRow, int toCol, int toRow);
+    void updatePlayerStatusLabel();
 
     void setNetworkClient(NetworkClient* client);
     NetworkClient* getNetworkClient() const { return networkClient_; }
@@ -57,6 +59,7 @@ signals:
     void statusChanged(const QString& status);
     void themeChanged(const QString& theme);
     void gameLoaded(ChessGame* game);
+    void updateStatusLabel(const QString& status);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
