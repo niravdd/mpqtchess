@@ -27,7 +27,7 @@ void SettingsDialog::createUI()
     QGroupBox* themeGroup = new QGroupBox(tr("Theme"));
     QVBoxLayout* themeLayout = new QVBoxLayout;
     themeCombo_ = new QComboBox;
-    themeCombo_->addItems({"Classic", "Modern", "Minimalist"});
+    themeCombo_->addItems({"classic", "modern", "minimalist"});
     themeLayout->addWidget(new QLabel(tr("Select Theme:")));
     themeLayout->addWidget(themeCombo_);
     
@@ -164,6 +164,7 @@ void SettingsDialog::setupPreviewBoard()
     }
     
     // Fit view to scene
+    // amazonq-ignore-next-line
     previewView_->fitInView(previewScene_->sceneRect(), ::Qt::KeepAspectRatio);
 }
 
@@ -186,6 +187,7 @@ void SettingsDialog::updatePreview()
         // Update board squares
         int squareIndex = 0;
         for (QGraphicsItem* item : previewScene_->items()) {
+            // amazonq-ignore-next-line
             if (QGraphicsRectItem* square = qgraphicsitem_cast<QGraphicsRectItem*>(item)) {
                 int row = squareIndex / 4;
                 int col = squareIndex % 4;

@@ -18,6 +18,10 @@ cmake -DCMAKE_PREFIX_PATH=/Users/niravdd/Qt/6.5.3/macos \
 
 echo "== Building project =="
 cmake --build . -j 8
+mkdir ../bin
+mv chess_client ../bin
+mv chess_server ../bin
+cd ..
 
 echo "== Build completed successfully =="
-echo "== Binaries location: \$(pwd)/bin =="
+echo "== Binaries location: $(pwd)/bin =="

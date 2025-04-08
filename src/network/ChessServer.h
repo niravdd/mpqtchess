@@ -6,6 +6,7 @@
 #include <array>
 #include "ChessProtocol.h"
 #include "../core/ChessGame.h"
+#include "../core/ChessPiece.h"
 
 class ChessNetworkServer : public QObject {
     Q_OBJECT
@@ -38,4 +39,5 @@ QTcpServer server_;
     void broadcastMessage(const NetworkMessage& msg);
     void processMessage(QTcpSocket* sender, const NetworkMessage& msg);
     void cleanupClient(QTcpSocket* client);
+    void logMessage(const QString& message);
 };

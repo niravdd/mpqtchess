@@ -56,14 +56,34 @@ void ConnectDialog::createUI()
     // Connect signals
     connect(connectButton_, &::QPushButton::clicked, this, &::QDialog::accept);
     connect(cancelButton, &::QPushButton::clicked, this, &::QDialog::reject);
-    connect(addressEdit_, &::QLineEdit::textChanged, 
-            this, &ConnectDialog::validateInput);
+    connect(addressEdit_, &::QLineEdit::textChanged, this, &ConnectDialog::validateInput);
 }
+
+// void ConnectDialog::validateInput()
+// {
+//     bool valid = !addressEdit_->text().isEmpty() && 
+//                  addressEdit_->hasAcceptableInput();
+//     connectButton_->setEnabled(valid);
+// }
 
 void ConnectDialog::validateInput()
 {
-    bool valid = !addressEdit_->text().isEmpty() && 
-                 addressEdit_->hasAcceptableInput();
+    QString serverAddress = addressEdit_->text().trimmed();
+    bool valid = !serverAddress.isEmpty();
+
+    if (valid) {
+        // Check if the server address is a valid IP address or hostname
+        QHostAddress address(serverAddress);
+        if (!address.isNull()) {
+            // Valid IP address
+            valid = true;
+        } else {
+            // Check if the server address is a valid hostname
+            QUrl url("http://" + serverAddress);
+            valid = url.isValid() && !url.host().isEmpty();
+        }
+    }
+
     connectButton_->setEnabled(valid);
 }
 

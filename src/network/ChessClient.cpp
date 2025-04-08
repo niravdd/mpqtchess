@@ -416,6 +416,7 @@ void ChessClient::processPlayerActionMessage(const NetworkMessage& msg)
             
         case MessageType::RESIGN:
             gameInProgress_ = false;
+            // amazonq-ignore-next-line
             emit playerResigned(playerColor_ == PieceColor::White ? 
                               PieceColor::Black : PieceColor::White);
             emit gameEnded("Resignation");

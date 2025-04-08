@@ -4,6 +4,7 @@
 #include <QtCore/QDataStream>
 #include "../core/ChessGame.h"
 #include "../core/Position.h"
+#include "../core/ChessPiece.h"
 
 enum class MessageType {
     CONNECT_REQUEST,
@@ -20,10 +21,36 @@ enum class MessageType {
     KEEPALIVE
 };
 
+inline QString messageTypeToString(MessageType messageType) {
+    switch (messageType) {
+        case MessageType::CONNECT_REQUEST: return "CONNECT_REQUEST";
+        case MessageType::CONNECT_RESPONSE: return "CONNECT_RESPONSE";
+        case MessageType::GAME_STATE: return "GAME_STATE";
+        case MessageType::MOVE: return "MOVE";
+        case MessageType::MOVE_RESPONSE: return "MOVE_RESPONSE";
+        case MessageType::DRAW_OFFER: return "DRAW_OFFER";
+        case MessageType::DRAW_RESPONSE: return "DRAW_RESPONSE";
+        case MessageType::RESIGN: return "RESIGN";
+        case MessageType::CHAT: return "CHAT";
+        case MessageType::ERROR: return "ERROR";
+        case MessageType::GAME_END: return "GAME_END";
+        case MessageType::KEEPALIVE: return "KEEPALIVE";
+     }
+
+     return "Unknown";
+}
+
 struct MoveData {
     Position from;
     Position to;
     PieceType promotionPiece;
+
+    QString toString() const {
+        return QString("from(%1,%2) to(%3,%4) promotionPiece(%5)")
+                .arg(from.row).arg(from.col)
+                .arg(to.row).arg(to.col)
+                .arg(pieceTypeToString(promotionPiece));
+    }
 };
 
 struct NetworkMessage {
