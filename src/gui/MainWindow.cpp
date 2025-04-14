@@ -48,7 +48,9 @@ MainWindow::MainWindow(QWidget* parent)
             moveHistory_, &MoveHistoryWidget::addMove);
     connect(&ThemeManager::getInstance(), &ThemeManager::themeChanged,
             boardView_, &ChessBoardView::updateTheme);
-            
+    connect(controlPanel_->controlStartButton(), &QPushButton::clicked, 
+            boardView_, &ChessBoardView::notifyServerReady);
+
     // Connect network signals
     connect(networkClient, &NetworkClient::connected,
             this, &MainWindow::onNetworkConnected);
@@ -84,14 +86,16 @@ void MainWindow::createMenus()
 void MainWindow::newGame()
 {
     QMessageBox::StandardButton reply = QMessageBox::question(
-        this, tr("New Game"),
-        tr("Are you sure you want to start a new game?"),
-        ::QMessageBox::Yes | ::QMessageBox::No);
+            this, tr("New Game"),
+            tr("Are you sure you want to start a new game?"),
+            ::QMessageBox::Yes | ::QMessageBox::No);
         
-    if (reply == ::QMessageBox::Yes) {
+    if (reply == ::QMessageBox::Yes)
+    {
         boardView_->resetGame();
         moveHistory_->clear();
         controlPanel_->resetClock();
+        controlPanel_->setGameActive(true);
     }
 }
 

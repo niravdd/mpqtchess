@@ -31,13 +31,20 @@ private slots:
     void handleClientError(QAbstractSocket::SocketError error);
 
 private:
-QTcpServer server_;
+    QTcpServer server_;
     std::array<QTcpSocket*, 2> clients_;
+    std::array<bool, 2> clientsReady_;  // Track each client's 'ready' status
     std::unique_ptr<ChessGame> game_;
-    
+    bool gameInProgress_;               // Track if a game is in progress
+
     void sendMessage(QTcpSocket* client, const NetworkMessage& msg);
     void broadcastMessage(const NetworkMessage& msg);
     void processMessage(QTcpSocket* sender, const NetworkMessage& msg);
     void cleanupClient(QTcpSocket* client);
     void logMessage(const QString& message);
+
+    // Helper methods for game start process
+    void checkAndStartGame();
+    void assignRandomColors();
+    int  getClientSlot(QTcpSocket* client);
 };

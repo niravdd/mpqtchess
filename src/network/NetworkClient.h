@@ -11,6 +11,7 @@
 #include <QtNetwork/QNetworkInterface>
 #include <QtCore/QString>
 #include <QtCore/QByteArray>
+#include "ChessProtocol.h"
 
 class NetworkClient : public QObject {
     Q_OBJECT
@@ -23,6 +24,8 @@ public:
     void disconnectFromServer();
     bool isConnected() const;
     void sendMove(const QString& from, const QString& to);
+    void sendData(const QByteArray& data);
+    void sendReadyStatus();
 
 signals:
     void connected();

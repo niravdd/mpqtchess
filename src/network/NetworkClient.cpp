@@ -69,6 +69,37 @@ void NetworkClient::onDisconnected()
     emit disconnected();
 }
 
+void NetworkClient::sendData(const QByteArray& data)
+{
+    if (socket_ && socket_->state() == QTcpSocket::ConnectedState)
+    {
+        socket_->write(data);
+        socket_->flush();
+    } else
+    {
+        emit errorOccurred("Not connected to server");
+    }
+}
+
+void NetworkClient::sendReadyStatus()
+{
+    if (!socket_ || socket_->state() != QTcpSocket::ConnectedState) {
+        emit errorOccurred("Not connected to server");
+        return;
+    }
+    
+    NetworkMessage msg;
+    msg.type = MessageType::PLAYER_READY;
+    msg.data = "READY";
+    
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream.setVersion(QDataStream::Qt_5_15);
+    stream << msg;
+    
+    socket_->write(data);
+}
+
 void NetworkClient::onReadyRead()
 {
     buffer_ += socket_->readAll();

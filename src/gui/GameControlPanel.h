@@ -31,6 +31,7 @@ public:
     void setGamePaused(bool paused);
     void setDrawOffered(bool offered);
     void setResignEnabled(bool enabled);
+    QPushButton* controlStartButton() { return startBtn_; }
 
 public slots:
     void applySettings();

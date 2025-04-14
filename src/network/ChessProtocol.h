@@ -18,11 +18,15 @@ enum class MessageType {
     CHAT,
     ERROR,
     GAME_END,
-    KEEPALIVE
+    KEEPALIVE,
+    PLAYER_READY,
+    GAME_START
 };
 
-inline QString messageTypeToString(MessageType messageType) {
-    switch (messageType) {
+inline QString messageTypeToString(MessageType messageType)
+{
+    switch (messageType)
+    {
         case MessageType::CONNECT_REQUEST: return "CONNECT_REQUEST";
         case MessageType::CONNECT_RESPONSE: return "CONNECT_RESPONSE";
         case MessageType::GAME_STATE: return "GAME_STATE";
@@ -35,6 +39,9 @@ inline QString messageTypeToString(MessageType messageType) {
         case MessageType::ERROR: return "ERROR";
         case MessageType::GAME_END: return "GAME_END";
         case MessageType::KEEPALIVE: return "KEEPALIVE";
+        case MessageType::PLAYER_READY: return "PLAYER_READY";
+        case MessageType::GAME_START: return "GAME_START";
+        default: return "Unknown";
      }
 
      return "Unknown";

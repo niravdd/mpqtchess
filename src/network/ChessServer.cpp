@@ -7,7 +7,9 @@
 ChessNetworkServer::ChessNetworkServer(QObject* parent)
     : QObject(parent)
     , clients_({nullptr, nullptr})
+    , clientsReady_({false, false})
     , game_(std::make_unique<ChessGame>())
+    , gameInProgress_(false)
 {
     connect(&server_, &::QTcpServer::newConnection,
             this, &ChessNetworkServer::handleNewConnection);
@@ -70,6 +72,7 @@ void ChessNetworkServer::handleNewConnection()
     }
 
     clients_[slot] = clientSocket;
+    clientsReady_[slot] = false;  // Reset ready status
     
     logMessage(QString("New client connected, assigned to slot %1.").arg(slot));
     
@@ -84,22 +87,34 @@ void ChessNetworkServer::handleNewConnection()
     NetworkMessage response;
     response.type = MessageType::CONNECT_RESPONSE;
     response.success = true;
-    response.data = (slot == 0) ? "WHITE" : "BLACK";
+    response.data = "CONNECTED";
     sendMessage(clientSocket, response);
     logMessage(QString("Sent connection response to the new client, assigned color: %1.").arg(response.data));
 
     emit clientConnected(slot == 0 ? PieceColor::White : PieceColor::Black);
 
     // If both players connected, start the game
-    if (clients_[0] && clients_[1]) {
-        logMessage("Both players connected, starting the game.");
-        
-        NetworkMessage startMsg;
-        startMsg.type = MessageType::GAME_STATE;
-        startMsg.data = "started";
-        broadcastMessage(startMsg);
-        emit gameStarted();
+//    if (clients_[0] && clients_[1]) {
+//        logMessage("Both players connected, starting the game.");
+//        
+//        NetworkMessage startMsg;
+//        startMsg.type = MessageType::GAME_STATE;
+//        startMsg.data = "started";
+//        broadcastMessage(startMsg);
+//        emit gameStarted();
+//    }
+
+}
+
+// Helper method to get a client's slot
+int ChessNetworkServer::getClientSlot(QTcpSocket* client) {
+    for (int i = 0; i < clients_.size(); ++i) {
+        if (clients_[i] == client) {
+            return i;
+        }
     }
+
+    return -1;
 }
 
 void ChessNetworkServer::handleClientDisconnected() {
@@ -180,6 +195,21 @@ void ChessNetworkServer::processMessage(QTcpSocket* sender, const NetworkMessage
                             .arg(static_cast<int>(msg.type)));
 
     switch (msg.type) {
+        // Handle PLAYER_READY message
+        case MessageType::PLAYER_READY: {
+            logMessage(QString("In MessageType::PLAYER_READY, sender: %1").arg(sender->peerAddress().toString()));
+            
+            int slot = getClientSlot(sender);
+            if (slot >= 0) {
+                clientsReady_[slot] = true;
+                logMessage(QString("Client in slot %1 is ready").arg(slot));
+                
+                // Check if all connected clients are ready
+                checkAndStartGame();
+            }
+            break;
+        }
+
         case MessageType::CONNECT_REQUEST: {
             logMessage(QString("In MessageType::CONNECT_REQUEST, sender: %1").arg(sender->peerAddress().toString()));
             NetworkMessage response;
@@ -402,12 +432,84 @@ void ChessNetworkServer::processMessage(QTcpSocket* sender, const NetworkMessage
     }
 }
 
-void ChessNetworkServer::cleanupClient(QTcpSocket* client) {
+// Add method to check if all clients are ready and start game if they are
+void ChessNetworkServer::checkAndStartGame() {
+    // We need two connected clients
+    if (!clients_[0] || !clients_[1]) {
+        logMessage("Can't start game: Not enough clients connected");
+        return;
+    }
+    
+    // Both clients need to be ready
+    if (!clientsReady_[0] || !clientsReady_[1]) {
+        logMessage("Can't start game: Not all clients are ready");
+        return;
+    }
+    
+    // Don't start if a game is already in progress
+    if (gameInProgress_) {
+        logMessage("Can't start game: Game already in progress");
+        return;
+    }
+    
+    logMessage("All clients are connected and ready. Starting the game!");
+    
+    // Assign random colors to clients
+    assignRandomColors();
+    
+    // Reset the game state
+    game_ = std::make_unique<ChessGame>();
+    
+    // Set game in progress flag
+    gameInProgress_ = true;
+    
+    // Send game start message with color information
+    NetworkMessage startMsg;
+    startMsg.type = MessageType::GAME_START;
+    
+    // Tell first client their color
+    startMsg.data = "WHITE";
+    sendMessage(clients_[0], startMsg);
+    
+    // Tell second client their color
+    startMsg.data = "BLACK";
+    sendMessage(clients_[1], startMsg);
+    
+    logMessage("Game started - sent color assignments to both clients");
+    emit gameStarted();
+}
+
+// Add method to randomly assign colors (swap clients if needed)
+void ChessNetworkServer::assignRandomColors() {
+    // Randomly decide if we should swap the clients (50% chance)
+    if (QRandomGenerator::global()->bounded(2) == 1) {
+        logMessage("Randomizing colors: Swapping client positions");
+        
+        // Swap client pointers
+        std::swap(clients_[0], clients_[1]);
+        
+        // Swap ready status to match
+        std::swap(clientsReady_[0], clientsReady_[1]);
+    } else {
+        logMessage("Randomizing colors: Keeping original client positions");
+    }
+}
+
+
+void ChessNetworkServer::cleanupClient(QTcpSocket* client)
+{
     for (int i = 0; i < 2; ++i) {
         if (clients_[i] == client) {
             logMessage(QString("Cleaning up client at slot %1.").arg(i));
             clients_[i] = nullptr;
+            clientsReady_[i] = false;  // Reset ready status
             emit clientDisconnected(i == 0 ? PieceColor::White : PieceColor::Black);
+            
+            // Reset game in progress if a client disconnects
+            if (gameInProgress_) {
+                gameInProgress_ = false;
+                logMessage("Game in progress terminated due to client disconnection");
+            }
             
             // Notify remaining client
             if (clients_[1-i]) {
@@ -423,6 +525,6 @@ void ChessNetworkServer::cleanupClient(QTcpSocket* client) {
             break;
         }
     }
-    
+
     client->deleteLater();
 }

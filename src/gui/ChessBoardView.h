@@ -49,6 +49,7 @@ public:
     void receiveNetworkMove(const QString& fromSquare, const QString& toSquare);
     void receiveNetworkMove(int fromCol, int fromRow, int toCol, int toRow);
     void updatePlayerStatusLabel();
+    void setPlayerColor(PieceColor color);
 
     void setNetworkClient(NetworkClient* client);
     NetworkClient* getNetworkClient() const { return networkClient_; }
@@ -77,6 +78,7 @@ private slots:
 
 public slots:
     void handleParsedMove(int fromCol, int fromRow, int toCol, int toRow);
+    void notifyServerReady();
 
 private:
     void setupBoard();
