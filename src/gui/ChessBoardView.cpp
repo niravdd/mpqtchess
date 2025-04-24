@@ -215,6 +215,18 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
 
                 qDebug() << "from ChessBoardView::mouseReleaseEvent(): Move Successful: " << moveNotation;
                 
+                // Store game state information BEFORE network operations
+                bool isInCheckmate = false;
+                bool isInStalemate = false;
+                PieceColor currentTurn = PieceColor::None;
+                
+                // Save game state that we might need after network operations
+                if (game_) {
+                    isInCheckmate = game_->isCheckmate(game_->getCurrentTurn());
+                    isInStalemate = game_->isStalemate(game_->getCurrentTurn());
+                    currentTurn = game_->getCurrentTurn();
+                }
+
                 // Send move over network if connected
                 if (networkClient_ && networkClient_->isConnected())
                 {
@@ -229,6 +241,7 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
                         if (!fromSquare.isEmpty() && !toSquare.isEmpty())
                         {
                             networkClient_->sendMove(fromSquare, toSquare);
+                            qDebug() << "from ChessBoardView::mouseReleaseEvent(): Move sent to server successfully";
                         }
                         else
                         {
@@ -244,19 +257,31 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
                         qDebug() << "from ChessBoardView::mouseReleaseEvent(): Unknown exception sending move";
                     }
                 }
-                
-                // Check for game-ending conditions
-                if (game_->isCheckmate(game_->getCurrentTurn()))
+
+                if(game_)
                 {
-                    emit gameOver(tr("Checkmate! %1 wins!")
-                        .arg(game_->getCurrentTurn() == PieceColor::White ? 
-                             "Black" : "White"));
+                    // Check for game-ending conditions
+                    if (game_->isCheckmate(game_->getCurrentTurn()))
+                    {
+                        emit gameOver(tr("Checkmate! %1 wins!")
+                            .arg(game_->getCurrentTurn() == PieceColor::White ? 
+                                "Black" : "White"));
+                    }
+                    else if (game_->isStalemate(game_->getCurrentTurn()))
+                    {
+                        emit gameOver(tr("Stalemate! Game is drawn."));
+                    }
+                    else
+                    {
+                        qDebug() << "from ChessBoardView::mouseReleaseEvent(): Not checkmate, not stalemate...";
+                    }
                 }
-                else if (game_->isStalemate(game_->getCurrentTurn()))
+                else
                 {
-                    emit gameOver(tr("Stalemate! Game is drawn."));
+                    qDebug() << "from ChessBoardView::mouseReleaseEvent(): WARNING: Game became invalid after network operations!";
                 }
-            } else
+            }
+            else
             {
                 qDebug() << "from ChessBoardView::mouseReleaseEvent(): Move failed in game logic";
 
@@ -270,6 +295,7 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
             // Move not valid, return piece to original position
             selectedPiece_->setPos(dragStartPos_);
         }
+        qDebug() << "from ChessBoardView::mouseReleaseEvent(): Outer try{}";
     }
     catch (const std::exception& e)
     {
@@ -279,14 +305,20 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
     {
         qDebug() << "Unknown exception in mouseReleaseEvent";
     }
-        
+
+    qDebug() << "from ChessBoardView::mouseReleaseEvent(): if(selectedPiece_) is valid?";
     // Always reset piece selection and highlights
     if (selectedPiece_)
     {
+        qDebug() << "from ChessBoardView::mouseReleaseEvent(): Inside if(selectedPiece_) is valid";
+        
         selectedPiece_->setZValue(1);
+    
+        qDebug() << "from ChessBoardView::mouseReleaseEvent(): Inside if(selectedPiece_) is valid, after setZValue()";
         selectedPiece_ = nullptr;
     }
 
+    qDebug() << "from ChessBoardView::mouseReleaseEvent(): Before clearHighlights...";
     clearHighlights();
 }
 

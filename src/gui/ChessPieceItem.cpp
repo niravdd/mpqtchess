@@ -39,34 +39,15 @@ void ChessPieceItem::updateSize(qreal squareSize)
     setPixmap(scaledPixmap);
 }
 
-// void ChessPieceItem::updateSize(qreal squareSize)
-// {
-//     lastSquareSize_ = squareSize;
-//     QString resourcePath = getResourcePath();
-//     QSvgRenderer renderer(resourcePath);
-    
-//     // Create a pixmap of the desired size
-//     QPixmap pixmap(squareSize, squareSize);
-//     pixmap.fill(::Qt::transparent);  // Ensure transparent background
-    
-//     // Render the SVG to the pixmap
-//     QPainter painter(&pixmap);
-//     painter.setRenderHint(::QPainter::Antialiasing);
-//     painter.setRenderHint(::QPainter::SmoothPixmapTransform);
-    
-//     // Get theme scale factor
-//     qreal scale = ThemeManager::getInstance().getCurrentTheme().pieceScale;
-    
-//     // Calculate scaled size and position
-//     qreal scaledSize = squareSize * scale;
-//     qreal offset = (squareSize - scaledSize) / 2;
-    
-//     renderer.render(&painter, QRectF(offset, offset, scaledSize, scaledSize));
-//     setPixmap(pixmap);
-// }
-
 QString ChessPieceItem::getResourcePath() const
 {
+    // Potential null/empty checks
+    if (!piece_)
+    {
+        qWarning() << "from ChessPieceItem::getResourcePath(): Attempt to get resource path for null piece";
+        return QString();
+    }
+
     QString themeName = (currentTheme_.isEmpty() ? Settings::getInstance().getCurrentTheme().toLower() : currentTheme_);
     QString color = (piece_->getColor() == PieceColor::White) ? "white" : "black";
     QString pieceName;

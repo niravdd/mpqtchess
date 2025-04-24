@@ -44,6 +44,7 @@ bool NetworkClient::isConnected() const
 
 void NetworkClient::sendMove(const QString& from, const QString& to)
 {
+    qDebug() << "from NetworkClient::sendMove(): entered...";
     if (!isConnected()) {
         emit errorOccurred("Not connected to server");
         return;
@@ -56,7 +57,12 @@ void NetworkClient::sendMove(const QString& from, const QString& to)
 
     QJsonDocument doc(moveObj);
     QByteArray data = doc.toJson(::QJsonDocument::Compact) + "\n";
+
+    qDebug() << "from NetworkClient::sendMove(): data = " << data;
+
     socket_->write(data);
+
+    qDebug() << "from NetworkClient::sendMove(): data sent, exit...";
 }
 
 void NetworkClient::onConnected()

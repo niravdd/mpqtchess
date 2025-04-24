@@ -1,5 +1,4 @@
 // src/network/ChessServer.cpp
-#include "ChessProtocol.h"
 #include "ChessServer.h"
 #include <QDataStream>
 #include <QDateTime>
@@ -89,7 +88,7 @@ void ChessNetworkServer::handleNewConnection()
     response.success = true;
     response.data = "CONNECTED";
     sendMessage(clientSocket, response);
-    logMessage(QString("Sent connection response to the new client, assigned color: %1.").arg(response.data));
+    logMessage(QString("Sent connection response to the new client: %1, assigned color: %2.").arg(response.data).arg(slot == 0 ? pieceColorToString(PieceColor::White) : pieceColorToString(PieceColor::Black)));
 
     emit clientConnected(slot == 0 ? PieceColor::White : PieceColor::Black);
 
@@ -494,7 +493,6 @@ void ChessNetworkServer::assignRandomColors() {
         logMessage("Randomizing colors: Keeping original client positions");
     }
 }
-
 
 void ChessNetworkServer::cleanupClient(QTcpSocket* client)
 {

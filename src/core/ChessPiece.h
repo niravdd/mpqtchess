@@ -32,6 +32,15 @@ enum class PieceColor {
     None
 };
 
+inline QString pieceColorToString(PieceColor pieceColor) {
+    switch (pieceColor) {
+        case PieceColor::White: return "White";
+        case PieceColor::Black: return "Black";
+        case PieceColor::None: return "None";
+    }
+    return "Unknown";
+}
+
 class ChessPiece {
 public:
     ChessPiece(PieceType type, PieceColor color);
