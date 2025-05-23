@@ -1,0 +1,21 @@
+<!DOCTYPE RCC>
+<RCC>
+    <qresource prefix="/">
+        <file>Resources/pieces/white_pawn.svg</file>
+        <file>Resources/pieces/white_knight.svg</file>
+        <file>Resources/pieces/white_bishop.svg</file>
+        <file>Resources/pieces/white_rook.svg</file>
+        <file>Resources/pieces/white_queen.svg</file>
+        <file>Resources/pieces/white_king.svg</file>
+        <file>Resources/pieces/black_pawn.svg</file>
+        <file>Resources/pieces/black_knight.svg</file>
+        <file>Resources/pieces/black_bishop.svg</file>
+        <file>Resources/pieces/black_rook.svg</file>
+        <file>Resources/pieces/black_queen.svg</file>
+        <file>Resources/pieces/black_king.svg</file>
+        <file>Resources/sounds/move.wav</file>
+        <file>Resources/sounds/capture.wav</file>
+        <file>Resources/sounds/check.wav</file>
+        <file>Resources/sounds/game_end.wav</file>
+    </qresource>
+</RCC>
