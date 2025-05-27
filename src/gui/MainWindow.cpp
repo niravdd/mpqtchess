@@ -58,6 +58,8 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onNetworkDisconnected);
     connect(networkClient, &NetworkClient::errorOccurred,
             this, &MainWindow::onNetworkError);
+    connect(networkClient, &NetworkClient::colorAssigned, 
+            this, &MainWindow::handleColorAssigned);
 }
 
 void MainWindow::createMenus()
@@ -290,8 +292,13 @@ void MainWindow::onNetworkConnected()
     // Enable start buttons after successful network connection
     controlPanel_->setStartEnabled(true);
     
-    // Optional: Log connection success
-    qDebug() << "Network connected: Start buttons enabled";
+    // Automatically notify server that player is ready
+    if (boardView_ && boardView_->getNetworkClient()) {
+        boardView_->notifyServerReady();
+    }
+    
+    // Log connection success
+    qDebug() << "Network connected: Start buttons enabled and automatically notified server ready";
 }
 
 void MainWindow::onNetworkDisconnected()
@@ -313,4 +320,40 @@ void MainWindow::onNetworkError(const QString& error)
     
     // Show error message
     QMessageBox::critical(this, tr("Network Error"), error);
+}
+
+void MainWindow::handleColorAssigned(PieceColor color)
+{
+    qDebug() << "from MainWindow::handleColorAssigned(): MainWindow received colour assignment: " << pieceColorToString(color);
+    
+    // Update the ChessBoardView with the assigned color
+    if (boardView_)
+    {
+        // Set the player's color which will create a new game with pieces
+        boardView_->setPlayerColor(color);
+        
+        // Update UI elements to show which color the player is using
+        QString colorStr = (color == PieceColor::White) ? "White" : "Black";
+        statusBar()->showMessage("You are playing as " + colorStr);
+        
+        // Automatically start the game when color is assigned
+        controlPanel_->startGame();
+        
+        qDebug() << "from MainWindow::handleColorAssigned(): Board orientation set for " << colorStr << " and game automatically started";
+    }
+    else
+    {
+        qWarning() << "from MainWindow::handleColorAssigned(): ChessBoardView is null when trying to set player color";
+    }
+}
+
+void MainWindow::startGameFromColorAssignment(int colorValue)
+{
+    qDebug() << "from MainWindow::startGameFromColorAssignment(): Starting game with color value: " << colorValue;
+    
+    // Ensure the control panel starts the game
+    if (controlPanel_) {
+        controlPanel_->startGame();
+        qDebug() << "from MainWindow::startGameFromColorAssignment(): Game started via control panel";
+    }
 }

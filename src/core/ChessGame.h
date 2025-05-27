@@ -77,6 +77,12 @@ public:
     const std::vector<MoveRecord>& getMoveHistory() const;
     
     std::shared_ptr<ChessPiece> getPieceAt(const Position& pos) const;
+    
+    // Get the total number of pieces on the board
+    int getPieceCount() const;
+    
+    // Clear all pieces from the board
+    void clearBoard();
     bool isGameOver() const { return gameOver_; }
     std::string getGameResult() const;
     void resign(PieceColor color);

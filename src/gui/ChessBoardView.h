@@ -46,6 +46,7 @@ public:
     void setAnimationsEnabled(bool enabled);
     void setSoundEnabled(bool enabled);
     void updateBoardFromGame();
+    void updateBoard();
     void receiveNetworkMove(const QString& fromSquare, const QString& toSquare);
     void receiveNetworkMove(int fromCol, int fromRow, int toCol, int toRow);
     void updatePlayerStatusLabel();
@@ -82,7 +83,6 @@ public slots:
 
 private:
     void setupBoard();
-    void updateBoard();
     void highlightLegalMoves(const QPoint& pos);
     QPoint boardPositionAt(const QPointF& pos) const;
     void clearHighlights();

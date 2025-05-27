@@ -15,7 +15,7 @@ ChessBoardView::ChessBoardView(QWidget* parent, NetworkClient* networkClient)
     , networkClient_(networkClient)
     , selectedSquare_(-1, -1)
     , gameOver_(false)
-    , playerColor_(PieceColor::White)
+    , playerColor_(PieceColor::None)
 {
     setScene(scene_);
     setRenderHint(QPainter::Antialiasing);
@@ -66,11 +66,23 @@ void ChessBoardView::setupBoard()
         }
     }
 
+    // Determine board orientation based on player color
+    bool isWhiteAtBottom = (playerColor_ == PieceColor::White || playerColor_ == PieceColor::None);
+    
+    qDebug() << "from ChessBoardView::setupBoard(): Setting up board with orientation: " 
+             << (isWhiteAtBottom ? "White at bottom" : "Black at bottom")
+             << " - Player color is: " << (playerColor_ == PieceColor::White ? "White" : 
+                                          (playerColor_ == PieceColor::Black ? "Black" : "None"));
+
     // Create squares
     for (int row = 0; row < BOARD_SIZE; ++row) {
         for (int col = 0; col < BOARD_SIZE; ++col) {
+            // Calculate visual position based on player perspective
+            int visualRow = isWhiteAtBottom ? row : (BOARD_SIZE - 1 - row);
+            int visualCol = isWhiteAtBottom ? col : (BOARD_SIZE - 1 - col);
+            
             QGraphicsRectItem* square = scene_->addRect(
-                col * squareSize, row * squareSize,
+                visualCol * squareSize, visualRow * squareSize,
                 squareSize, squareSize);
             
             bool isLight = (row + col) % 2 == 0;
@@ -80,7 +92,7 @@ void ChessBoardView::setupBoard()
             
             // Create highlight overlay
             highlightItems_[row][col] = scene_->addRect(
-                col * squareSize, row * squareSize,
+                visualCol * squareSize, visualRow * squareSize,
                 squareSize, squareSize);
             highlightItems_[row][col]->setBrush(::Qt::transparent);
             highlightItems_[row][col]->setPen(::Qt::NoPen);
@@ -136,7 +148,8 @@ void ChessBoardView::mousePressEvent(QMouseEvent* event)
 
     qDebug() << "Mouse Press: Scene Pos" << scenePos 
              << "Board Pos" << boardPos 
-             << "Player Color" << (playerColor_ == PieceColor::White ? "White" : "Black");
+             << "Player Color" << (playerColor_ == PieceColor::White ? "White" : "Black")
+             << "Current Turn" << (game_->getCurrentTurn() == PieceColor::White ? "White" : "Black");
 
     // Validate board position
     if (!game_->isValidPosition(boardPos)) {
@@ -149,21 +162,37 @@ void ChessBoardView::mousePressEvent(QMouseEvent* event)
     
     // Check if piece exists and it's the current player's turn
     if (piece && piece->getColor() == game_->getCurrentTurn()) {
+        // Only allow moving pieces of your own color in network games
+        if (networkClient_ && networkClient_->isConnected()) {
+            if (piece->getColor() != playerColor_) {
+                qDebug() << "Cannot move opponent's pieces in network game";
+                return;
+            }
+        }
+        
         // Find the corresponding ChessPieceItem
         for (auto item : scene_->items(scenePos)) {
             if (ChessPieceItem* pieceItem = dynamic_cast<ChessPieceItem*>(item)) {
                 selectedPiece_ = pieceItem;
                 dragStartPos_ = scenePos;
+                selectedSquare_ = boardPos;
 
                 qDebug() << "Piece Selected: " 
                          << (piece->getColor() == PieceColor::White ? "White" : "Black")
-                         << "Piece Type: " << pieceTypeToString(piece->getType());
+                         << "Piece Type: " << pieceTypeToString(piece->getType())
+                         << "at position" << boardPos.x() << "," << boardPos.y();
                 
                 // Bring the piece to front and highlight legal moves
                 selectedPiece_->setZValue(2);
                 highlightLegalMoves(boardPos);
                 break;
             }
+        }
+    } else {
+        qDebug() << "No valid piece to move at position" << boardPos.x() << "," << boardPos.y();
+        if (piece) {
+            qDebug() << "Piece color:" << (piece->getColor() == PieceColor::White ? "White" : "Black")
+                     << "Current turn:" << (game_->getCurrentTurn() == PieceColor::White ? "White" : "Black");
         }
     }
 }
@@ -313,8 +342,6 @@ void ChessBoardView::mouseReleaseEvent(QMouseEvent* event)
         qDebug() << "from ChessBoardView::mouseReleaseEvent(): Inside if(selectedPiece_) is valid";
         
         selectedPiece_->setZValue(1);
-    
-        qDebug() << "from ChessBoardView::mouseReleaseEvent(): Inside if(selectedPiece_) is valid, after setZValue()";
         selectedPiece_ = nullptr;
     }
 
@@ -447,17 +474,20 @@ QPoint ChessBoardView::boardPositionAt(const QPointF& pos) const
     int col = static_cast<int>(pos.x() / squareSize);
     int row = static_cast<int>(pos.y() / squareSize);
 
-    qDebug() << "from ChessBoardView::BoardPositionAt(): Original Pos: " << QPoint(col, row)
-             << "Player Color: " << (playerColor_ == PieceColor::White ? "White" : "Black");
+    qDebug() << "from ChessBoardView::boardPositionAt(): Visual Pos: " << QPoint(col, row)
+             << "Player Color: " << (playerColor_ == PieceColor::White ? "White" : 
+                                    (playerColor_ == PieceColor::Black ? "Black" : "None"));
 
     // Adjust for player perspective
-    if (playerColor_ == PieceColor::Black)
+    bool isBlackPlayer = (playerColor_ == PieceColor::Black);
+    if (isBlackPlayer)
     {
+        // For black player, the board is flipped, so we need to invert coordinates
         col = 7 - col;
         row = 7 - row;
 
-        qDebug() << "from ChessBoardView::BoardPositionAt(): Updated Pos for Black Orientation: " << QPoint(col, row)
-                    << "Player Color: " << (playerColor_ == PieceColor::White ? "White" : "Black");
+        qDebug() << "from ChessBoardView::boardPositionAt(): Logical Pos for Black Orientation: " << QPoint(col, row)
+                    << "Player Color: Black";
     }
         
     return QPoint(col, row);
@@ -465,6 +495,10 @@ QPoint ChessBoardView::boardPositionAt(const QPointF& pos) const
 
 void ChessBoardView::updateBoard()
 {
+    qDebug() << "from ChessBoardView::updateBoard(): Entered with playerColor =" 
+             << (playerColor_ == PieceColor::White ? "White" : 
+                (playerColor_ == PieceColor::Black ? "Black" : "None"));
+    
     // Clear existing pieces
     for (auto item : scene_->items()) {
         if (dynamic_cast<ChessPieceItem*>(item)) {
@@ -477,22 +511,41 @@ void ChessBoardView::updateBoard()
     qreal squareSize = scene_->width() / 8;
     
     // Determine board orientation based on player color
-    bool isWhiteAtBottom = (playerColor_ == PieceColor::White);
+    bool isBlackPlayer = (playerColor_ == PieceColor::Black);
 
     // Debug logging
-    qDebug() << "from UpdateBoard(): Player Colour" 
-             << (playerColor_ == PieceColor::White ? "White" : "Black")
-             << "... and isWhiteAtBottom is: " << isWhiteAtBottom
+    qDebug() << "from ChessBoardView::updateBoard(): Player Colour" 
+             << (playerColor_ == PieceColor::White ? "White" : 
+                (playerColor_ == PieceColor::Black ? "Black" : "None"))
+             << "... and isBlackPlayer is: " << isBlackPlayer
              << "... and scene width is: " << scene_->width()
-             << "... and squareSize is: " << squareSize
-             << "... and scene width / squareSize is: " << scene_->width() / squareSize;
+             << "... and squareSize is: " << squareSize;
 
+    // Check if game is valid
+    if (!game_) {
+        qDebug() << "from ChessBoardView::updateBoard(): Game object is NULL!";
+        return;
+    }
+    
+    // Log the number of pieces in the game
+    int pieceCount = 0;
     for (int row = 0; row < 8; ++row) {
         for (int col = 0; col < 8; ++col) {
-            // Calculate the effective row based on player perspective
-            int effectiveRow = isWhiteAtBottom ? row : 7 - row;
-            int effectiveCol = isWhiteAtBottom ? col : 7 - col;
+            if (game_->getPieceAt(QPoint(col, row))) {
+                pieceCount++;
+            }
+        }
+    }
+    qDebug() << "from ChessBoardView::updateBoard(): Game has" << pieceCount << "pieces";
+    
+    // Always place pieces, even if player color is None
+    for (int row = 0; row < 8; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            // Calculate the effective row and column based on player perspective
+            int effectiveRow = isBlackPlayer ? (7 - row) : row;
+            int effectiveCol = isBlackPlayer ? (7 - col) : col;
             
+            // Get the piece from the logical board position
             auto piece = game_->getPieceAt(QPoint(col, row));
             if (piece) {
                 auto pieceItem = new ChessPieceItem(piece);
@@ -502,11 +555,29 @@ void ChessBoardView::updateBoard()
                                   effectiveRow * squareSize);
                 pieceItem->updateSize(squareSize);
                 scene_->addItem(pieceItem);
+                
+                // Set z-value to ensure pieces are above board squares
+                pieceItem->setZValue(1);
+                
+                qDebug() << "from ChessBoardView::updateBoard(): Added piece" 
+                         << pieceTypeToString(piece->getType())
+                         << (piece->getColor() == PieceColor::White ? "White" : "Black")
+                         << "at position" << col << "," << row
+                         << "visual position" << effectiveCol << "," << effectiveRow;
             }
         }
     }
 
     updatePlayerStatusLabel();
+    
+    // Force scene update
+    scene_->update();
+    
+    qDebug() << "from ChessBoardView::updateBoard(): Board updated with" << pieceCount << "pieces";
+    
+    // Log the current turn
+    qDebug() << "from ChessBoardView::updateBoard(): Current turn is" 
+             << (game_->getCurrentTurn() == PieceColor::White ? "White" : "Black");
 }
 
 void ChessBoardView::updateBoardFromGame()
@@ -725,6 +796,10 @@ void ChessBoardView::setSoundEnabled(bool enabled)
 
 void ChessBoardView::resetGame()
 {
+    qDebug() << "from ChessBoardView::resetGame(): Entered with playerColor =" 
+             << (playerColor_ == PieceColor::White ? "White" : 
+                (playerColor_ == PieceColor::Black ? "Black" : "None"));
+    
     // Store current player colour
     PieceColor currentPlayer = playerColor_;
 
@@ -737,8 +812,16 @@ void ChessBoardView::resetGame()
     // Create a new chess game
     game_ = std::make_unique<ChessGame>();
     
+    qDebug() << "from ChessBoardView::resetGame(): Created new game with" << game_->getPieceCount() << "pieces";
+    
+    // Maintain the player color that was set
+    playerColor_ = currentPlayer;
+    
+    // Setup the board with the correct orientation based on player color
+    setupBoard();
+    
     // Update board state
-    updateBoardFromGame();
+    updateBoard();
     
     // Notify that a new game has started
     emit gameLoaded(game_.get());
@@ -748,23 +831,43 @@ void ChessBoardView::resetGame()
     
     // Reset game state variables
     gameOver_ = false;
-    playerColor_ = currentPlayer;
+    
+    // Log the current player color
+    qDebug() << "from ChessBoardView::resetGame(): Player color maintained as: " 
+             << (playerColor_ == PieceColor::White ? "White" : "Black");
     
     // Refresh view
     update();
+    
+    qDebug() << "from ChessBoardView::resetGame(): Game reset complete";
 }
 
 void ChessBoardView::setPlayerColor(PieceColor color)
 {
     if (playerColor_ != color) {
         playerColor_ = color;
-        qDebug() << "Player color changed to" << (playerColor_ == PieceColor::White ? "White" : "Black");
+        qDebug() << "from ChessBoardView::setPlayerColor(): Player color changed to" << (playerColor_ == PieceColor::White ? "White" : "Black");
         
-        // Update board to reflect new orientation
+        // Create a new game with pieces
+        game_ = std::make_unique<ChessGame>();
+        qDebug() << "from ChessBoardView::setPlayerColor(): Created new game with pieces";
+        
+        // Setup board with new orientation
+        setupBoard();
+        
+        // Update the board to reflect the new orientation
         updateBoard();
+        
+        // Log the board state after setting player color
+        qDebug() << "from ChessBoardView::setPlayerColor(): Board updated with player color" << (playerColor_ == PieceColor::White ? "White" : "Black");
+        qDebug() << "from ChessBoardView::setPlayerColor(): Game has" << game_->getPieceCount() << "pieces on the board";
         
         // Update status
         updatePlayerStatusLabel();
+        
+        // Emit status change
+        emit statusChanged(tr("Game started. You are playing %1")
+            .arg(color == PieceColor::White ? "white" : "black"));
     }
 }
 
@@ -777,10 +880,12 @@ QString ChessBoardView::getCurrentTheme() const
 void ChessBoardView::onConnected()
 {
     emit statusChanged(tr("Connected to server"));
-
-    // Reset game and update board upon connection
-    resetGame();
-    updateBoard();  // Explicitly update board after connection
+    
+    // Notify that we're waiting for color assignment
+    emit statusChanged(tr("Connected to server. Waiting for color assignment..."));
+    
+    // Notify server that player is ready to start
+    notifyServerReady();
 }
 
 void ChessBoardView::onDisconnected()
@@ -810,8 +915,16 @@ void ChessBoardView::setNetworkClient(NetworkClient* client)
     
     // Connect to new client
     if (networkClient_) {
+        connect(networkClient_, &NetworkClient::connected,
+                this, &ChessBoardView::onConnected);
+        connect(networkClient_, &NetworkClient::disconnected,
+                this, &ChessBoardView::onDisconnected);
         connect(networkClient_, &NetworkClient::parsedMoveReceived,
                 this, &ChessBoardView::handleParsedMove);
+        connect(networkClient_, &NetworkClient::colorAssigned,
+                this, &ChessBoardView::setPlayerColor);
+        connect(networkClient_, &NetworkClient::errorOccurred,
+                this, &ChessBoardView::onNetworkError);
     }
 }
 
@@ -874,36 +987,8 @@ void ChessBoardView::handleParsedMove(int fromCol, int fromRow, int toCol, int t
 
 void ChessBoardView::handleNetworkData(const QByteArray& data)
 {
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (doc.isNull() || !doc.isObject()) {
-        emit statusChanged("Invalid network message");
-        return;
-    }
-    
-    QJsonObject obj = doc.object();
-    QString type = obj["type"].toString();
-    
-    if (type == "game_start") {
-        qDebug() << "from ChessBoardView::handleNetworkData(): Game Start Received from Colour [" << obj["color"].toString() << "] from server:";
-        qDebug() << "from ChessBoardView::handleNetworkData(): Full JSON: " << obj;
-    
-        playerColor_ = obj["color"].toString().compare("white", Qt::CaseInsensitive) == 0
-                    ? PieceColor::White : PieceColor::Black;
-
-        qDebug() << "from ChessBoardView::handleNetworkData(): Player Colour Set: " 
-                << (playerColor_ == PieceColor::White ? "White" : "Black");
-
-        resetGame();
-        updateBoard();  // Explicitly update board after game start
-
-        emit statusChanged(tr("Game started. You are playing %1")
-            .arg(playerColor_ == PieceColor::White ? "white" : "black"));
-    }
-    else if (type == "chat") {
-        emit statusChanged(tr("[Chat] %1: %2")
-            .arg(obj["sender"].toString())
-            .arg(obj["content"].toString()));
-    }
+    // This function is no longer needed as we're handling color assignment directly
+    // through the colorAssigned signal in NetworkClient
 }
 
 void ChessBoardView::notifyServerReady()

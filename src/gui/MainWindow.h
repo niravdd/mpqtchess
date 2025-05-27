@@ -40,6 +40,8 @@ private slots:
     void onNetworkConnected();
     void onNetworkDisconnected();
     void onNetworkError(const QString& error);
+    void handleColorAssigned(PieceColor color);
+    void startGameFromColorAssignment(int colorValue);
 
 private:
     void createMenus();

@@ -745,6 +745,29 @@ std::shared_ptr<ChessPiece> ChessGame::getPieceAt(const Position& pos) const
     return board_->getPieceAt(pos);
 }
 
+int ChessGame::getPieceCount() const
+{
+    int count = 0;
+    for (int row = 0; row < 8; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            if (board_->getPieceAt(Position(row, col))) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+void ChessGame::clearBoard()
+{
+    // Remove all pieces from the board
+    for (int row = 0; row < 8; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            board_->removePiece(Position(row, col));
+        }
+    }
+}
+
 const std::vector<MoveRecord>& ChessGame::getMoveHistory() const
 {
     return moveHistory_;

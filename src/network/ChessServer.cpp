@@ -161,15 +161,27 @@ void ChessNetworkServer::handleClientError(QAbstractSocket::SocketError error)
 
 void ChessNetworkServer::sendMessage(QTcpSocket* client, const NetworkMessage& msg)
 {
+    if (!client) {
+        logMessage("from ChessNetworkServer::sendMessage(): client is null.");
+        return;
+    }
+
     QByteArray data;
     QDataStream stream(&data, ::QIODevice::WriteOnly);
     stream.setVersion(::QDataStream::Qt_5_15);
     stream << msg;
 
     logMessage(QString("Sending data to client: %1").arg(client->peerAddress().toString()));
-    logMessage(QString("Data sent: %1").arg(QString(data)));
+    logMessage(QString("Data to be sent: %1").arg(QString::fromUtf8(data)));
+
+    if (client->state() != ::QAbstractSocket::ConnectedState) {
+        logMessage("ChessNetworkServer::sendMessage: ERROR Client is not connected, cannot send message.");
+        return;
+    }
 
     client->write(data);
+
+    logMessage(QString("Data sent to client: %1").arg(client->peerAddress().toString()));
 }
 
 void ChessNetworkServer::broadcastMessage(const NetworkMessage& msg) {
@@ -432,7 +444,8 @@ void ChessNetworkServer::processMessage(QTcpSocket* sender, const NetworkMessage
 }
 
 // Add method to check if all clients are ready and start game if they are
-void ChessNetworkServer::checkAndStartGame() {
+void ChessNetworkServer::checkAndStartGame()
+{
     // We need two connected clients
     if (!clients_[0] || !clients_[1]) {
         logMessage("Can't start game: Not enough clients connected");

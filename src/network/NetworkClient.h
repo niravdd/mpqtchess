@@ -34,6 +34,7 @@ signals:
     void moveReceived(const QString& from, const QString& to);
     void parsedMoveReceived(int fromCol, int fromRow, int toCol, int toRow);
     void errorOccurred(const QString& errorMessage);
+    void colorAssigned(PieceColor color);
 
 public slots:
     void processNetworkData(const QByteArray& data);

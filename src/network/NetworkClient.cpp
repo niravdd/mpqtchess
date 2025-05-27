@@ -2,6 +2,7 @@
 #include "NetworkClient.h"
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTimer>
 
 NetworkClient::NetworkClient(QObject* parent)
     : QObject(parent)
@@ -58,7 +59,7 @@ void NetworkClient::sendMove(const QString& from, const QString& to)
     QJsonDocument doc(moveObj);
     QByteArray data = doc.toJson(::QJsonDocument::Compact) + "\n";
 
-    qDebug() << "from NetworkClient::sendMove(): data = " << data;
+    qDebug() << "from NetworkClient::sendMove(): data = { " << data << " }";
 
     socket_->write(data);
 
@@ -77,6 +78,9 @@ void NetworkClient::onDisconnected()
 
 void NetworkClient::sendData(const QByteArray& data)
 {
+    qDebug() << "from NetworkClient::sendData(): entered...";
+    qDebug() << "from NetworkClient::sendData(): data = { " << data << " }";
+
     if (socket_ && socket_->state() == QTcpSocket::ConnectedState)
     {
         socket_->write(data);
@@ -85,10 +89,14 @@ void NetworkClient::sendData(const QByteArray& data)
     {
         emit errorOccurred("Not connected to server");
     }
+
+    qDebug() << "from NetworkClient::sendData(): exit...";
 }
 
 void NetworkClient::sendReadyStatus()
 {
+    qDebug() << "from NetworkClient::sendReadyStatus(): entered...";
+
     if (!socket_ || socket_->state() != QTcpSocket::ConnectedState) {
         emit errorOccurred("Not connected to server");
         return;
@@ -104,42 +112,166 @@ void NetworkClient::sendReadyStatus()
     stream << msg;
     
     socket_->write(data);
+
+    qDebug() << "from NetworkClient::sendReadyStatus(): exit...";
 }
 
 void NetworkClient::onReadyRead()
 {
-    buffer_ += socket_->readAll();
-    
-    int endIndex;
-    while ((endIndex = buffer_.indexOf('\n')) != -1) {
-        const QByteArray rawData = buffer_.left(endIndex);
-        buffer_.remove(0, endIndex + 1);
-        
-        // Emit raw data for generic handling
-        emit rawDataReceived(rawData);
+    qDebug() << "from NetworkClient::onReadyRead(): NetworkClient received data from server";
 
-        // Parse for moves
+    QByteArray newData = socket_->readAll();
+    qDebug() << "from NetworkClient::onReadyRead(): New data received (size):" << newData.size() << "bytes";
+    
+    buffer_ += newData;
+    qDebug() << "from NetworkClient::onReadyRead(): Current buffer size:" << buffer_.size() << "bytes";
+    qDebug() << "from NetworkClient::onReadyRead(): Buffer as hex:" << buffer_.toHex();
+
+    // First try to parse as JSON for backward compatibility
+    int endIndex = buffer_.indexOf('\n');
+    if (endIndex != -1) {
+        QByteArray jsonData = buffer_.left(endIndex);
         QJsonParseError parseError;
-        QJsonDocument doc = QJsonDocument::fromJson(rawData, &parseError);
+        QJsonDocument doc = QJsonDocument::fromJson(jsonData, &parseError);
         
         if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
-            QJsonObject obj = doc.object();
-            
-            if (obj["type"].toString() == "move") {
-                int fromCol, fromRow, toCol, toRow;
-                if (parseMoveData(obj, fromCol, fromRow, toCol, toRow)) {
-                    emit parsedMoveReceived(fromCol, fromRow, toCol, toRow);
-                }
-            }
+            // Process JSON message
+            buffer_.remove(0, endIndex + 1);
+            emit rawDataReceived(jsonData);
+            return;
         }
     }
+
+    // Process binary messages from the buffer
+    while (buffer_.size() >= 4) {  // Assuming at least 4 bytes for header
+        // Assuming first 4 bytes contain message type
+        int messageType = *reinterpret_cast<const int*>(buffer_.constData());
+        
+        qDebug() << "from NetworkClient::onReadyRead(): Message type detected: " << messageType;
+        
+        // Process different message types
+        switch (messageType) {
+            case static_cast<int>(MessageType::PLAYER_READY): {
+                if (buffer_.size() < 8) return; // Wait for more data
+                
+                // Process PLAYER_READY message
+                qDebug() << "from NetworkClient::onReadyRead(): Processing PLAYER_READY message...";
+                
+                // Extract string data
+                int stringLength = *reinterpret_cast<const int*>(buffer_.constData() + 4);
+                if (buffer_.size() < 8 + stringLength) return; // Wait for more data
+                
+                // Use a safer approach for string conversion
+                QByteArray stringData(buffer_.mid(8, stringLength * 2)); // UTF-16 = 2 bytes per char
+                QString message = QString::fromUtf8(stringData);
+                
+                qDebug() << "from NetworkClient::onReadyRead(): Connected & PLAYER_READY message content:" << message;
+                
+                // Remove processed message from buffer
+                buffer_.remove(0, 8 + stringLength);
+                break;
+            }
+            
+            case static_cast<int>(MessageType::GAME_START): {
+                if (buffer_.size() < 8)
+                    return; // Wait for more data
+
+                // Process GAME_START message
+                qDebug() << "from NetworkClient::onReadyRead(): Processing GAME_START message...";
+                
+                // Extract color data
+                int stringLength = *reinterpret_cast<const int*>(buffer_.constData() + 4);
+                if(buffer_.size() < 8 + stringLength) return; // Wait for more data
+                
+                // Use a safer approach for string conversion
+                QByteArray stringData(buffer_.mid(8, stringLength * 2)); // UTF-16 = 2 bytes per char
+                QString colorString = QString::fromUtf8(stringData);
+                
+                qDebug() << "from NetworkClient::onReadyRead(): Color assignment: " << colorString;
+                
+                PieceColor color = PieceColor::None;
+                if(colorString == "WHITE")
+                {
+                    color = PieceColor::White;
+                    qDebug() << "from NetworkClient::onReadyRead(): Assigned WHITE color to player";
+                } else if(colorString == "BLACK")
+                {
+                    color = PieceColor::Black;
+                    qDebug() << "from NetworkClient::onReadyRead(): Assigned BLACK color to player";
+                } else {
+                    qDebug() << "from NetworkClient::onReadyRead(): WARNING: Unknown color string: " << colorString;
+                }
+                
+                // Remove processed message from buffer
+                buffer_.remove(0, 8 + stringLength);
+                
+                // Emit the signal for color assignment immediately
+                if (color != PieceColor::None) {
+                    qDebug() << "from NetworkClient::onReadyRead(): Emitting colorAssigned signal with color: " 
+                             << (color == PieceColor::White ? "White" : "Black");
+                    
+                    // Emit the color assignment signal directly
+                    emit colorAssigned(color);
+                }
+                break;
+            }
+            
+            default:
+                // Unknown message type - try to recover
+                qDebug() << "from NetworkClient::onReadyRead(): Unknown message type:" << messageType;
+                buffer_.remove(0, 1); // Remove one byte and try again
+                break;
+        }
+    }
+
+    qDebug() << "from NetworkClient::onReadyRead(): Remaining buffer size:" << buffer_.size() << "bytes";
+    qDebug() << "from NetworkClient::onReadyRead(): exit...";
 }
+
+// void NetworkClient::onReadyRead()
+// {
+//     qDebug() << "from NetworkClient::onReadyRead(): NetworkClient received data from server";
+
+//     buffer_ += socket_->readAll();
+
+//     qDebug() << "from NetworkClient::onReadyRead(): buffer_ = { " << buffer_ << " } ";
+    
+//     int endIndex;
+//     while ((endIndex = buffer_.indexOf('\n')) != -1) {
+//         const QByteArray rawData = buffer_.left(endIndex);
+//         buffer_.remove(0, endIndex + 1);
+        
+//         // Emit raw data for generic handling
+//         emit rawDataReceived(rawData);
+
+//         // Parse for moves
+//         QJsonParseError parseError;
+//         QJsonDocument doc = QJsonDocument::fromJson(rawData, &parseError);
+
+//         qDebug() << "from NetworkClient::onReadyRead(): doc = { " << doc.toJson(QJsonDocument::Indented) << " } ";
+
+//         if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+//             QJsonObject obj = doc.object();
+            
+//             if (obj["type"].toString() == "move") {
+//                 int fromCol, fromRow, toCol, toRow;
+//                 if (parseMoveData(obj, fromCol, fromRow, toCol, toRow)) {
+//                     emit parsedMoveReceived(fromCol, fromRow, toCol, toRow);
+//                 }
+//             }
+//         }
+//     }
+
+//     qDebug() << "from NetworkClient::onReadyRead(): exit...";
+// }
 
 // New move parsing function
 bool NetworkClient::parseMoveData(const QJsonObject& obj, 
                                  int& fromCol, int& fromRow,
                                  int& toCol, int& toRow)
 {
+    qDebug() << "from NetworkClient::parseMoveData(): entered...";
+
     auto convertNotation = [](const QString& notation) -> std::pair<int, int> {
         if (notation.length() != 2) return {-1, -1};
         
@@ -170,6 +302,9 @@ bool NetworkClient::parseMoveData(const QJsonObject& obj,
     fromRow = fr;
     toCol = tc;
     toRow = tr;
+
+    qDebug() << "from NetworkClient::parseMoveData(): exit...";
+
     return true;
 }
 
@@ -181,6 +316,9 @@ void NetworkClient::onError(QAbstractSocket::SocketError socketError)
 
 void NetworkClient::processNetworkData(const QByteArray& data)
 {
+    qDebug() << "from NetworkClient::processNetworkData(): entered...";
+    qDebug() << "from NetworkClient::processNetworkData(): data = { " << data << " }";
+
     // Example format: "e2-e4" or "g1-f3"
     QString moveStr = QString::fromUtf8(data).simplified();
     
@@ -208,4 +346,6 @@ void NetworkClient::processNetworkData(const QByteArray& data)
     }
 
     emit moveReceived(from, to);
+
+    qDebug() << "from NetworkClient::processNetworkData(): exit...";
 }

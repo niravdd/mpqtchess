@@ -148,6 +148,8 @@ void GameControlPanel::updateClocks()
 
 void GameControlPanel::startGame()
 {
+    qDebug() << "from GameControlPanel::startGame(): Starting game...";
+    
     gameActive_ = true;
     gameTimer_->start(1000);  // 1 second intervals
     startBtn_->setEnabled(false);
@@ -159,7 +161,7 @@ void GameControlPanel::startGame()
         playSound(":/sounds/start.wav");
     }
     
-    emit newGameRequested();
+    qDebug() << "from GameControlPanel::startGame(): Game started, timer running";
 }
 
 void GameControlPanel::pauseGame()
