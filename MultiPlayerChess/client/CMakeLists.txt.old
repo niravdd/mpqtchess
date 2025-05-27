@@ -1,0 +1,50 @@
+cmake_minimum_required(VERSION 3.16)
+project(MPChessClient VERSION 1.0.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+find_package(Qt6 COMPONENTS Core Gui Widgets Network Svg Multimedia Charts REQUIRED)
+
+# Add resources
+set(RESOURCE_FILES
+    resources/resources.qrc
+)
+
+# Add source files
+set(SOURCE_FILES
+    MPChessClient.cpp
+    MPChessClient.h
+)
+
+# Create UI file
+qt_wrap_ui(UI_HEADERS MPChessClient.ui)
+
+# Add executable
+add_executable(MPChessClient
+    \${SOURCE_FILES}
+    \${RESOURCE_FILES}
+    \${UI_HEADERS}
+)
+
+# Link libraries
+target_link_libraries(MPChessClient PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Network
+    Qt6::Svg
+    Qt6::Multimedia
+    Qt6::Charts
+)
+
+# Install
+install(TARGETS MPChessClient
+    BUNDLE DESTINATION .
+    LIBRARY DESTINATION \${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION \${CMAKE_INSTALL_BINDIR}
+)

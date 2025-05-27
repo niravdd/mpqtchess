@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.16)
+project(MPChessServer LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+find_package(Qt6 COMPONENTS Core Network REQUIRED)
+
+add_executable(MPChessServer
+    MPChessServer.cpp
+    MPChessServer.h
+)
+
+target_link_libraries(MPChessServer PRIVATE
+    Qt6::Core
+    Qt6::Network
+)
+
+# Create necessary directories
+file(MAKE_DIRECTORY \${CMAKE_BINARY_DIR}/data)
+file(MAKE_DIRECTORY \${CMAKE_BINARY_DIR}/data/game_history)
+file(MAKE_DIRECTORY \${CMAKE_BINARY_DIR}/data/players)
+file(MAKE_DIRECTORY \${CMAKE_BINARY_DIR}/data/logs)

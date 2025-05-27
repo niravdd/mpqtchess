@@ -1,0 +1,50 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file>app_icon.png</file>
+        <file>flip_board.png</file>
+        <file>settings.png</file>
+        <file>resign.png</file>
+        <file>draw.png</file>
+    </qresource>
+    <qresource prefix="/pieces/classic">
+        <file>white_pawn.svg</file>
+        <file>white_knight.svg</file>
+        <file>white_bishop.svg</file>
+        <file>white_rook.svg</file>
+        <file>white_queen.svg</file>
+        <file>white_king.svg</file>
+        <file>black_pawn.svg</file>
+        <file>black_knight.svg</file>
+        <file>black_bishop.svg</file>
+        <file>black_rook.svg</file>
+        <file>black_queen.svg</file>
+        <file>black_king.svg</file>
+    </qresource>
+    <qresource prefix="/pieces/modern">
+        <file>white_pawn.svg</file>
+        <file>white_knight.svg</file>
+        <file>white_bishop.svg</file>
+        <file>white_rook.svg</file>
+        <file>white_queen.svg</file>
+        <file>white_king.svg</file>
+        <file>black_pawn.svg</file>
+        <file>black_knight.svg</file>
+        <file>black_bishop.svg</file>
+        <file>black_rook.svg</file>
+        <file>black_queen.svg</file>
+        <file>black_king.svg</file>
+    </qresource>
+    <qresource prefix="/sounds">
+        <file>move.wav</file>
+        <file>capture.wav</file>
+        <file>check.wav</file>
+        <file>checkmate.wav</file>
+        <file>castle.wav</file>
+        <file>promotion.wav</file>
+        <file>game_start.wav</file>
+        <file>game_end.wav</file>
+        <file>error.wav</file>
+        <file>notification.wav</file>
+        <file>background_music.mp3</file>
+    </qresource>
+</RCC>
