@@ -1,7 +1,7 @@
 // MPChessClient.cpp
 
 #include "MPChessClient.h"
-#include "ui_MPChessClient.h"
+#include "../build/ui_MPChessClient.h"
 
 #include <QApplication>
 #include <QScreen>
@@ -12,6 +12,7 @@
 #include <QFileDialog>
 #include <QStandardPaths>
 #include <QClipboard>
+#include <QMediaFormat>
 
 // Logger implementation
 Logger::Logger(QObject* parent) : QObject(parent), logLevel(LogLevel::INFO), logToFile(false) {
@@ -19,70 +20,122 @@ Logger::Logger(QObject* parent) : QObject(parent), logLevel(LogLevel::INFO), log
 }
 
 Logger::~Logger() {
-    if (logFile.isOpen()) {
-        logFile.close();
+    try {
+        if (logFile.isOpen()) {
+            logFile.close();
+        }
+    } catch (...) {
+        // Ensure no exceptions escape the destructor
+        qCritical() << "Exception caught in Logger destructor";
     }
 }
 
 void Logger::setLogLevel(LogLevel level) {
+    QMutexLocker<QMutex> locker(&mutex);
     logLevel = level;
 }
 
 Logger::LogLevel Logger::getLogLevel() const {
+    // For const methods, we need to use a mutable mutex or avoid using QMutexLocker
+    // Since this is just a getter, we can safely return without locking
     return logLevel;
 }
 
 void Logger::debug(const QString& message) {
-    log(LogLevel::DEBUG, message);
+    try {
+        log(LogLevel::DEBUG, message);
+    } catch (const std::exception& e) {
+        qCritical() << "Exception in debug(): " << e.what();
+    } catch (...) {
+        qCritical() << "Unknown exception in debug()";
+    }
 }
 
 void Logger::info(const QString& message) {
-    log(LogLevel::INFO, message);
+    try {
+        log(LogLevel::INFO, message);
+    } catch (const std::exception& e) {
+        qCritical() << "Exception in info(): " << e.what();
+    } catch (...) {
+        qCritical() << "Unknown exception in info()";
+    }
 }
 
 void Logger::warning(const QString& message) {
-    log(LogLevel::WARNING, message);
+    try {
+        log(LogLevel::WARNING, message);
+    } catch (const std::exception& e) {
+        qCritical() << "Exception in warning(): " << e.what();
+    } catch (...) {
+        qCritical() << "Unknown exception in warning()";
+    }
 }
 
 void Logger::error(const QString& message) {
-    log(LogLevel::ERROR, message);
+    try {
+        log(LogLevel::ERROR, message);
+    } catch (const std::exception& e) {
+        qCritical() << "Exception in error(): " << e.what();
+    } catch (...) {
+        qCritical() << "Unknown exception in error()";
+    }
 }
 
 void Logger::setLogToFile(bool enabled, const QString& filePath) {
-    QMutexLocker locker(&mutex);
-    
-    if (logFile.isOpen()) {
-        logFile.close();
-    }
-    
-    logToFile = enabled;
-    
-    if (enabled) {
-        if (filePath.isEmpty()) {
-            // Use default log file path
-            QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-            QDir dir(defaultPath);
-            if (!dir.exists()) {
-                dir.mkpath(".");
-            }
-            logFilePath = defaultPath + "/chess_client.log";
-        } else {
-            logFilePath = filePath;
+    try {
+        QMutexLocker<QMutex> locker(&mutex);
+        
+        // Close existing log file if open
+        if (logFile.isOpen()) {
+            logFile.close();
         }
         
-        logFile.setFileName(logFilePath);
-        if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-            qWarning() << "Failed to open log file:" << logFilePath;
-            logToFile = false;
+        logToFile = enabled;
+        
+        if (enabled) {
+            // Set log file path
+            if (filePath.isEmpty()) {
+                // Use current directory instead of AppDataLocation
+                QString defaultPath = QDir::currentPath();
+                logFilePath = defaultPath + "/mpchess_client.log";
+                
+                // Print the log file path to console
+                qDebug() << "Log file will be created at:" << logFilePath;
+            } else {
+                logFilePath = filePath;
+            }
+            
+            // Open log file
+            logFile.setFileName(logFilePath);
+            if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+                qWarning() << "Failed to open log file:" << logFilePath;
+                logToFile = false;
+                return;
+            }
+
+            // Write a separator line safely
+            QTextStream stream(&logFile);
+            stream << "\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> App Launched <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+            logFile.flush();
         }
+    } catch (const std::exception& e) {
+        qCritical() << "Exception in setLogToFile(): " << e.what();
+        logToFile = false;
+    } catch (...) {
+        qCritical() << "Unknown exception in setLogToFile()";
+        logToFile = false;
     }
 }
 
 bool Logger::isLoggingToFile() const {
+    // For const methods, we need to avoid using QMutexLocker
+    // Since this is just a getter, we can safely return without locking
     return logToFile;
 }
 
 QString Logger::getLogFilePath() const {
+    // For const methods, we need to avoid using QMutexLocker
+    // Since this is just a getter, we can safely return without locking
     return logFilePath;
 }
 
@@ -91,31 +144,38 @@ void Logger::log(LogLevel level, const QString& message) {
         return;
     }
     
-    QString formattedMessage = QString("%1 [%2] %3")
-        .arg(getCurrentTimestamp())
-        .arg(levelToString(level))
-        .arg(message);
-    
-    QMutexLocker locker(&mutex);
-    
-    // Output to console
-    if (level == LogLevel::ERROR) {
-        qCritical() << formattedMessage;
-    } else if (level == LogLevel::WARNING) {
-        qWarning() << formattedMessage;
-    } else {
-        qDebug() << formattedMessage;
+    try {
+        QString formattedMessage = QString("%1 [%2] %3")
+            .arg(getCurrentTimestamp())
+            .arg(levelToString(level))
+            .arg(message);
+        
+        QMutexLocker<QMutex> locker(&mutex);
+        
+        // Output to console
+        if (level == LogLevel::ERROR) {
+            qCritical() << formattedMessage;
+        } else if (level == LogLevel::WARNING) {
+            qWarning() << formattedMessage;
+        } else {
+            qDebug() << formattedMessage;
+        }
+        
+        // Write to log file if enabled
+        if (logToFile && logFile.isOpen()) {
+            QTextStream stream(&logFile);
+            stream << formattedMessage << Qt::endl;
+            logFile.flush();
+        }
+        
+        // Emit signal for UI components
+        locker.unlock(); // Unlock before emitting signal to prevent deadlocks
+        emit logMessage(level, formattedMessage);
+    } catch (const std::exception& e) {
+        qCritical() << "Exception in log(): " << e.what();
+    } catch (...) {
+        qCritical() << "Unknown exception in log()";
     }
-    
-    // Write to log file if enabled
-    if (logToFile && logFile.isOpen()) {
-        QTextStream stream(&logFile);
-        stream << formattedMessage << Qt::endl;
-        logFile.flush();
-    }
-    
-    // Emit signal for UI components
-    emit logMessage(level, formattedMessage);
 }
 
 QString Logger::levelToString(LogLevel level) const {
@@ -134,21 +194,45 @@ QString Logger::getCurrentTimestamp() const {
 
 // NetworkManager implementation
 NetworkManager::NetworkManager(Logger* logger, QObject* parent)
-    : QObject(parent), logger(logger), socket(nullptr), pingTimer(nullptr) {
-    
-    // Create socket
-    socket = new QTcpSocket(this);
-    
-    // Connect socket signals
-    connect(socket, &QTcpSocket::connected, this, &NetworkManager::onConnected);
-    connect(socket, &QTcpSocket::disconnected, this, &NetworkManager::onDisconnected);
-    connect(socket, &QTcpSocket::readyRead, this, &NetworkManager::onReadyRead);
-    connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error),
-            this, &NetworkManager::onError);
-    
-    // Create ping timer
-    pingTimer = new QTimer(this);
-    connect(pingTimer, &QTimer::timeout, this, &NetworkManager::onPingTimer);
+    : QObject(parent), logger(logger), socket(nullptr), pingTimer(nullptr)
+{    
+    try {
+        if (!logger) {
+            qDebug() << "WARNING: Logger is null in NetworkManager constructor";
+        }
+        
+        // Create socket
+        socket = new QTcpSocket(this);
+        if (!socket) {
+            if (logger) logger->error("Failed to create QTcpSocket");
+            return;
+        }
+        
+        // Connect socket signals
+        connect(socket, &QTcpSocket::connected, this, &NetworkManager::onConnected);
+        connect(socket, &QTcpSocket::disconnected, this, &NetworkManager::onDisconnected);
+        connect(socket, &QTcpSocket::readyRead, this, &NetworkManager::onReadyRead);
+        
+        // Use the correct error signal based on Qt version
+        connect(socket, &QTcpSocket::errorOccurred, this, &NetworkManager::onError);
+        
+        // Create ping timer
+        pingTimer = new QTimer(this);
+        if (!pingTimer) {
+            if (logger) logger->error("Failed to create ping timer");
+            return;
+        }
+        
+        connect(pingTimer, &QTimer::timeout, this, &NetworkManager::onPingTimer);
+        
+        if (logger) logger->info("NetworkManager initialized successfully");
+    } catch (const std::exception& e) {
+        if (logger) logger->error(QString("Exception in NetworkManager constructor: %1").arg(e.what()));
+        qDebug() << "Exception in NetworkManager constructor:" << e.what();
+    } catch (...) {
+        if (logger) logger->error("Unknown exception in NetworkManager constructor");
+        qDebug() << "Unknown exception in NetworkManager constructor";
+    }
 }
 
 NetworkManager::~NetworkManager() {
@@ -165,53 +249,103 @@ NetworkManager::~NetworkManager() {
     }
 }
 
-bool NetworkManager::connectToServer(const QString& host, int port) {
-    if (socket->state() == QAbstractSocket::ConnectedState) {
-        logger->warning("Already connected to server");
+bool NetworkManager::connectToServer(const QString& host, int port)
+{
+    try {
+        if (!socket) {
+            logger->error("Socket is null in connectToServer()");
+            return false;
+        }
+        
+        if (socket->state() == QAbstractSocket::ConnectedState) {
+            logger->warning("Already connected to server");
+            return true;
+        }
+        
+        logger->info(QString("Connecting to server at %1:%2").arg(host).arg(port));
+        
+        // Clear any existing buffer data
+        buffer.clear();
+        
+        // Connect to host
+        socket->connectToHost(host, port);
+        
+        // Wait for connection with timeout
+        if (!socket->waitForConnected(5000)) {
+            logger->error(QString("Failed to connect to server: %1").arg(socket->errorString()));
+            return false;
+        }
+        
+        logger->info("Connected to server successfully");
         return true;
-    }
-    
-    logger->info(QString("Connecting to server at %1:%2").arg(host).arg(port));
-    socket->connectToHost(host, port);
-    
-    // Wait for connection
-    if (!socket->waitForConnected(5000)) {
-        logger->error(QString("Failed to connect to server: %1").arg(socket->errorString()));
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in connectToServer(): %1").arg(e.what()));
+        return false;
+    } catch (...) {
+        logger->error("Unknown exception in connectToServer()");
         return false;
     }
-    
-    return true;
 }
 
-void NetworkManager::disconnectFromServer() {
-    if (socket->state() != QAbstractSocket::ConnectedState) {
-        logger->warning("Not connected to server");
-        return;
-    }
-    
-    logger->info("Disconnecting from server");
-    socket->disconnectFromHost();
-    
-    if (pingTimer->isActive()) {
-        pingTimer->stop();
+void NetworkManager::disconnectFromServer()
+{
+    try {
+        if (!socket) {
+            logger->error("Socket is null in disconnectFromServer()");
+            return;
+        }
+        
+        if (socket->state() != QAbstractSocket::ConnectedState) {
+            logger->warning("Not connected to server");
+            return;
+        }
+        
+        logger->info("Disconnecting from server");
+        socket->disconnectFromHost();
+        
+        if (pingTimer && pingTimer->isActive()) {
+            pingTimer->stop();
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in disconnectFromServer(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in disconnectFromServer()");
     }
 }
 
-bool NetworkManager::isConnected() const {
-    return socket->state() == QAbstractSocket::ConnectedState;
+bool NetworkManager::isConnected() const
+{
+    try {
+        return socket && socket->state() == QAbstractSocket::ConnectedState;
+    } catch (const std::exception& e) {
+        if (logger) logger->error(QString("Exception in isConnected(): %1").arg(e.what()));
+        else qDebug() << "Exception in isConnected():" << e.what();
+        return false;
+    } catch (...) {
+        if (logger) logger->error("Unknown exception in isConnected()");
+        else qDebug() << "Unknown exception in isConnected()";
+        return false;
+    }
 }
 
 void NetworkManager::authenticate(const QString& username, const QString& password, bool isRegistration) {
-    QJsonObject message;
-    message["type"] = static_cast<int>(MessageType::AUTHENTICATION);
-    message["username"] = username;
-    message["password"] = password;
-    message["register"] = isRegistration;
-    
-    sendMessage(message);
-    logger->info(QString("%1 attempt for user: %2")
-                .arg(isRegistration ? "Registration" : "Authentication")
-                .arg(username));
+    try {
+        QJsonObject message;
+        message["type"] = static_cast<int>(MessageType::AUTHENTICATION);
+        message["username"] = username;
+        message["password"] = password;
+        message["register"] = isRegistration;
+        
+        logger->info(QString("%1 attempt for user: %2")
+                    .arg(isRegistration ? "Registration" : "Authentication")
+                    .arg(username));
+        
+        sendMessage(message);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in authenticate(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in authenticate()");
+    }
 }
 
 void NetworkManager::sendMove(const QString& gameId, const ChessMove& move) {
@@ -316,56 +450,169 @@ void NetworkManager::sendPing() {
 }
 
 void NetworkManager::onConnected() {
-    logger->info("Connected to server");
-    
-    // Start ping timer
-    pingTimer->start(30000); // Send ping every 30 seconds
-    
-    emit connected();
+    try {
+        if (!logger) {
+            qDebug() << "Logger is null in NetworkManager::onConnected";
+            return;
+        }
+        
+        logger->info("Connected to server");
+        
+        // Start ping timer
+        if (pingTimer) {
+            pingTimer->start(30000); // Send ping every 30 seconds
+        } else {
+            logger->warning("Ping timer is null in onConnected");
+        }
+        
+        // Use QueuedConnection to avoid potential issues with signal-slot execution order
+        QMetaObject::invokeMethod(this, "emitConnectedSignal", Qt::QueuedConnection);
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in onConnected(): %1").arg(e.what()));
+        } else {
+            qDebug() << "Exception in onConnected():" << e.what();
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in onConnected()");
+        } else {
+            qDebug() << "Unknown exception in onConnected()";
+        }
+    }
 }
 
-void NetworkManager::onDisconnected() {
-    logger->info("Disconnected from server");
-    
-    // Stop ping timer
-    if (pingTimer->isActive()) {
-        pingTimer->stop();
+void NetworkManager::onDisconnected()
+{
+    try {
+        logger->info("Disconnected from server");
+        
+        // Stop ping timer
+        if (pingTimer && pingTimer->isActive()) {
+            pingTimer->stop();
+        }
+        
+        // Clear buffer
+        buffer.clear();
+        
+        emit disconnected();
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onDisconnected(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onDisconnected()");
     }
-    
-    emit disconnected();
+}
+
+void NetworkManager::emitConnectedSignal()
+{
+    try {
+        emit connected();
+    } catch (const std::exception& e) {
+        if (logger) logger->error(QString("Exception in emitConnectedSignal(): %1").arg(e.what()));
+        else qDebug() << "Exception in emitConnectedSignal():" << e.what();
+    } catch (...) {
+        if (logger) logger->error("Unknown exception in emitConnectedSignal()");
+        else qDebug() << "Unknown exception in emitConnectedSignal()";
+    }
 }
 
 void NetworkManager::onError(QAbstractSocket::SocketError socketError) {
-    QString errorMessage = socket->errorString();
-    logger->error(QString("Socket error: %1").arg(errorMessage));
-    
-    emit connectionError(errorMessage);
+    try {
+        QString errorMessage = socket ? socket->errorString() : "Unknown socket error";
+        logger->error(QString("Socket error: %1 (code: %2)").arg(errorMessage).arg(socketError));
+        
+        emit connectionError(errorMessage);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onError(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onError()");
+    }
 }
 
 void NetworkManager::onReadyRead() {
-    // Read all available data
-    buffer.append(socket->readAll());
-    
-    // Process complete JSON messages
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(buffer, &parseError);
-    
-    if (parseError.error == QJsonParseError::NoError) {
-        // Successfully parsed a complete JSON message
-        if (doc.isObject()) {
-            processMessage(doc.object());
-        } else {
-            logger->warning("Received JSON is not an object");
+    try {
+        if (!socket) {
+            logger->error("Socket is null in onReadyRead()");
+            return;
         }
         
-        // Clear the buffer
-        buffer.clear();
-    } else if (parseError.error != QJsonParseError::InsufficientData) {
-        // If the error is not just incomplete data, log it
-        logger->warning(QString("JSON parse error: %1").arg(parseError.errorString()));
-        buffer.clear();
+        // Read all available data
+        QByteArray newData = socket->readAll();
+        if (newData.isEmpty()) {
+            logger->warning("onReadyRead called but no data available");
+            return;
+        }
+        
+        logger->debug(QString("Received %1 bytes of data").arg(newData.size()));
+        buffer.append(newData);
+        
+        // Process complete JSON messages
+        processBuffer();
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onReadyRead(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onReadyRead()");
     }
-    // If the error is InsufficientData, keep the buffer for more data
+}
+
+// To process the buffer and extract complete JSON messages
+void NetworkManager::processBuffer()
+{
+    while (!buffer.isEmpty()) {
+        // Try to parse the current buffer content
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(buffer, &parseError);
+        
+        if (parseError.error == QJsonParseError::NoError) {
+            // Successfully parsed a complete JSON message
+            if (doc.isObject()) {
+                logger->debug("Processing complete JSON message");
+                processMessage(doc.object());
+            } else {
+                logger->warning("Received JSON is not an object");
+            }
+            
+            // Clear the buffer
+            buffer.clear();
+        } else if (parseError.error == QJsonParseError::DocumentTooLarge) {
+            // Message is too large, discard the buffer
+            logger->error("JSON document too large, discarding buffer");
+            buffer.clear();
+        } else if (parseError.error == QJsonParseError::GarbageAtEnd || 
+                  parseError.error == QJsonParseError::IllegalValue) {
+            // Try to find a valid JSON object in the buffer
+            int braceCount = 0;
+            int startPos = buffer.indexOf('{');
+            
+            if (startPos >= 0) {
+                for (int i = startPos; i < buffer.size(); i++) {
+                    if (buffer[i] == '{') braceCount++;
+                    else if (buffer[i] == '}') braceCount--;
+                    
+                    if (braceCount == 0 && i > startPos) {
+                        // Found a potential complete JSON object
+                        QByteArray jsonData = buffer.mid(startPos, i - startPos + 1);
+                        QJsonDocument testDoc = QJsonDocument::fromJson(jsonData, &parseError);
+                        
+                        if (parseError.error == QJsonParseError::NoError && testDoc.isObject()) {
+                            logger->debug("Found valid JSON object in buffer");
+                            processMessage(testDoc.object());
+                            buffer.remove(0, i + 1);
+                            continue;
+                        }
+                    }
+                }
+            }
+            
+            // If we get here, we couldn't find a valid JSON object
+            logger->warning(QString("JSON parse error: %1, discarding buffer").arg(parseError.errorString()));
+            buffer.clear();
+        } else {
+            // Probably an incomplete message, wait for more data
+            logger->debug(QString("Incomplete JSON message: %1").arg(parseError.errorString()));
+            break;
+        }
+    }
 }
 
 void NetworkManager::onPingTimer() {
@@ -375,90 +622,117 @@ void NetworkManager::onPingTimer() {
 }
 
 void NetworkManager::sendMessage(const QJsonObject& message) {
-    if (!isConnected()) {
-        logger->warning("Cannot send message: not connected to server");
-        return;
+    try {
+        if (!socket) {
+            logger->error("Socket is null in sendMessage()");
+            return;
+        }
+        
+        if (socket->state() != QAbstractSocket::ConnectedState) {
+            logger->warning("Cannot send message: not connected to server");
+            return;
+        }
+        
+        QJsonDocument doc(message);
+        QByteArray data = doc.toJson(QJsonDocument::Compact);
+        
+        logger->debug(QString("Sending message: %1 bytes").arg(data.size()));
+        
+        // Send the data
+        qint64 bytesSent = socket->write(data);
+        if (bytesSent != data.size()) {
+            logger->warning(QString("Failed to send complete message: %1/%2 bytes sent")
+                          .arg(bytesSent).arg(data.size()));
+        }
+        
+        socket->flush();
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in sendMessage(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in sendMessage()");
     }
-    
-    QJsonDocument doc(message);
-    QByteArray data = doc.toJson(QJsonDocument::Compact);
-    
-    socket->write(data);
-    socket->flush();
 }
 
-void NetworkManager::processMessage(const QJsonObject& message) {
-    if (!message.contains("type")) {
-        logger->warning("Received message without type field");
-        return;
-    }
-    
-    MessageType type = static_cast<MessageType>(message["type"].toInt());
-    
-    switch (type) {
-        case MessageType::AUTHENTICATION_RESULT:
-            processAuthenticationResult(message);
-            break;
-            
-        case MessageType::GAME_START:
-            processGameStart(message);
-            break;
-            
-        case MessageType::GAME_STATE:
-            processGameState(message);
-            break;
-            
-        case MessageType::MOVE_RESULT:
-            processMoveResult(message);
-            break;
-            
-        case MessageType::GAME_OVER:
-            processGameOver(message);
-            break;
-            
-        case MessageType::MOVE_RECOMMENDATIONS:
-            processMoveRecommendations(message);
-            break;
-            
-        case MessageType::MATCHMAKING_STATUS:
-            processMatchmakingStatus(message);
-            break;
-            
-        case MessageType::GAME_HISTORY_RESPONSE:
-            processGameHistoryResponse(message);
-            break;
-            
-        case MessageType::GAME_ANALYSIS_RESPONSE:
-            processGameAnalysisResponse(message);
-            break;
-            
-        case MessageType::LEADERBOARD_RESPONSE:
-            processLeaderboardResponse(message);
-            break;
-            
-        case MessageType::ERROR:
-            processError(message);
-            break;
-            
-        case MessageType::CHAT:
-            processChat(message);
-            break;
-            
-        case MessageType::DRAW_OFFER:
-            processDrawOffer(message);
-            break;
-            
-        case MessageType::DRAW_RESPONSE:
-            processDrawResponse(message);
-            break;
-            
-        case MessageType::PONG:
-            logger->debug("Received pong");
-            break;
-            
-        default:
-            logger->warning(QString("Unknown message type: %1").arg(static_cast<int>(type)));
-            break;
+void NetworkManager::processMessage(const QJsonObject& message)
+{
+    try {
+        if (!message.contains("type")) {
+            logger->warning("Received message without type field");
+            return;
+        }
+        
+        MessageType type = static_cast<MessageType>(message["type"].toInt());
+        logger->debug(QString("Processing message of type: %1").arg(static_cast<int>(type)));
+        
+        switch (type) {
+            case MessageType::AUTHENTICATION_RESULT:
+                processAuthenticationResult(message);
+                break;
+                
+            case MessageType::GAME_START:
+                processGameStart(message);
+                break;
+                
+            case MessageType::GAME_STATE:
+                processGameState(message);
+                break;
+                
+            case MessageType::MOVE_RESULT:
+                processMoveResult(message);
+                break;
+                
+            case MessageType::GAME_OVER:
+                processGameOver(message);
+                break;
+                
+            case MessageType::MOVE_RECOMMENDATIONS:
+                processMoveRecommendations(message);
+                break;
+                
+            case MessageType::MATCHMAKING_STATUS:
+                processMatchmakingStatus(message);
+                break;
+                
+            case MessageType::GAME_HISTORY_RESPONSE:
+                processGameHistoryResponse(message);
+                break;
+                
+            case MessageType::GAME_ANALYSIS_RESPONSE:
+                processGameAnalysisResponse(message);
+                break;
+                
+            case MessageType::LEADERBOARD_RESPONSE:
+                processLeaderboardResponse(message);
+                break;
+                
+            case MessageType::ERROR:
+                processError(message);
+                break;
+                
+            case MessageType::CHAT:
+                processChat(message);
+                break;
+                
+            case MessageType::DRAW_OFFER:
+                processDrawOffer(message);
+                break;
+                
+            case MessageType::DRAW_RESPONSE:
+                processDrawResponse(message);
+                break;
+                
+            case MessageType::PONG:
+                logger->debug("Received pong");
+                break;
+                
+            default:
+                logger->warning(QString("Unknown message type: %1").arg(static_cast<int>(type)));
+                break;
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in processMessage(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in processMessage()");
     }
 }
 
@@ -605,22 +879,72 @@ void NetworkManager::processDrawResponse(const QJsonObject& data) {
 // AudioManager implementation
 AudioManager::AudioManager(QObject* parent)
     : QObject(parent), soundEffectsEnabled(true), backgroundMusicEnabled(true),
-      soundEffectVolume(50), backgroundMusicVolume(30) {
-    
-    // Initialize music player
-    musicPlayer = new QMediaPlayer(this);
-    musicOutput = new QAudioOutput(this);
-    musicPlayer->setAudioOutput(musicOutput);
-    
-    // Set the source for background music
-    musicPlayer->setSource(QUrl("qrc:/sounds/background_music.mp3"));
-    musicPlayer->setLoops(QMediaPlayer::Infinite);
-    
-    // Set volumes
-    musicOutput->setVolume(backgroundMusicVolume / 100.0);
-    
-    // Load sound effects
-    loadSoundEffects();
+      soundEffectVolume(50), backgroundMusicVolume(30), musicPlayer(nullptr), musicOutput(nullptr)
+{
+    qDebug() << "AudioManager: Starting initialization";
+
+    try{
+        // Initialize music player
+        if((musicPlayer = new QMediaPlayer(this)) == nullptr)
+        {
+            qWarning() << "Failed to create QMediaPlayer";
+            return;
+        }
+        qDebug() << "AudioManager: Created QMediaPlayer";
+
+        if((musicOutput = new QAudioOutput(this)) == nullptr)
+        {
+            qWarning() << "Failed to create QAudioOutput";
+            return;
+        }
+        qDebug() << "AudioManager: Created QMediaOutput";
+
+        QMediaFormat mediaFormat;
+
+        // Get supported audio codecs
+        QList<QMediaFormat::AudioCodec> codecs = mediaFormat.supportedAudioCodecs(QMediaFormat::Decode);
+        QStringList supportedAudioCodecs;
+        for (const auto &codec : codecs) {
+            supportedAudioCodecs.append(QMediaFormat::audioCodecDescription(codec));
+        }
+        qDebug() << "INFO: Supported audio codecs: " << supportedAudioCodecs;
+
+        // Get supported file formats
+        QList<QMediaFormat::FileFormat> formats = mediaFormat.supportedFileFormats(QMediaFormat::Decode);
+        QStringList supportedFileFormats;
+        for (const auto &format : formats) {
+            supportedFileFormats.append(QMediaFormat::fileFormatDescription(format));
+        }
+        qDebug() << "INFO: Supported file formats: " << supportedFileFormats;
+
+        connect(musicPlayer, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error error, const QString &errorString)
+        {
+            qWarning() << "Media player error:" << error << errorString;
+        });
+
+        qDebug() << "AudioManager: Setting audio output";
+        musicPlayer->setAudioOutput(musicOutput);
+
+        qDebug() << "AudioManager: Setting background music";
+        // Set the source for background music
+        musicPlayer->setSource(QUrl("qrc:/sounds/background_music.wav"));
+        qDebug() << "AudioManager: Setting loops";
+        musicPlayer->setLoops(QMediaPlayer::Infinite);
+
+        qDebug() << "AudioManager: Setting volume";
+        // Set volumes
+        musicOutput->setVolume(backgroundMusicVolume / 100.0);
+        
+        qDebug() << "AudioManager: Loading sound effects";
+        // Load sound effects
+        loadSoundEffects();
+
+        qDebug() << "AudioManager: Initialization complete";
+    } catch (const std::exception& e) {
+        qCritical() << "AudioManager: Exception during initialization: " << e.what();
+    } catch (...) {
+        qCritical() << "AudioManager: Unknown exception during initialization";
+    }
 }
 
 AudioManager::~AudioManager() {
@@ -715,7 +1039,10 @@ int AudioManager::getBackgroundMusicVolume() const {
     return backgroundMusicVolume;
 }
 
-void AudioManager::loadSoundEffects() {
+void AudioManager::loadSoundEffects()
+{
+    qDebug() << "AudioManager::LoadSoundEffects(): Loading sound effects...";
+    
     // Map sound effects to resource paths
     soundEffectPaths[SoundEffect::MOVE] = "qrc:/sounds/move.wav";
     soundEffectPaths[SoundEffect::CAPTURE] = "qrc:/sounds/capture.wav";
@@ -727,6 +1054,17 @@ void AudioManager::loadSoundEffects() {
     soundEffectPaths[SoundEffect::GAME_END] = "qrc:/sounds/game_end.wav";
     soundEffectPaths[SoundEffect::ERROR] = "qrc:/sounds/error.wav";
     soundEffectPaths[SoundEffect::NOTIFICATION] = "qrc:/sounds/notification.wav";
+    
+    // Verify resources exist
+    for (auto it = soundEffectPaths.begin(); it != soundEffectPaths.end(); ++it) {
+        QString path = it.value();
+        QFile resourceFile(path);
+        if (!resourceFile.exists()) {
+            qWarning() << "AudioManager: Resource file(s) (sound effects) do not exist: " << path;
+        }
+    }
+
+    qDebug() << "AudioManager: loadSoundEffects() finished...";
 }
 
 // ThemeManager implementation
@@ -1191,35 +1529,56 @@ void ChessPieceItem::loadSvg() {
 }
 
 // ChessBoardWidget implementation
-ChessBoardWidget::ChessBoardWidget(ThemeManager* themeManager, AudioManager* audioManager, QWidget* parent)
+ChessBoardWidget::ChessBoardWidget(ThemeManager* themeManager, AudioManager* audioManager, QWidget* parent, Logger* logger)
     : QGraphicsView(parent), themeManager(themeManager), audioManager(audioManager),
-      squareSize(60), flipped(false), playerColor(PieceColor::WHITE), interactive(true) {
-    
-    // Create scene
-    scene = new QGraphicsScene(this);
-    setScene(scene);
-    
-    // Set up view properties
-    setRenderHint(QPainter::Antialiasing);
-    setRenderHint(QPainter::SmoothPixmapTransform);
-    setDragMode(QGraphicsView::NoDrag);
-    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    
-    // Initialize pieces array
-    for (int r = 0; r < 8; ++r) {
-        for (int c = 0; c < 8; ++c) {
-            pieces[r][c] = nullptr;
+      squareSize(60), flipped(false), playerColor(PieceColor::WHITE), interactive(true)
+{
+    try {
+        this->logger = logger;
+        if (!logger) {
+            qDebug() << "WARNING: Logger is null in ChessBoardWidget constructor";
         }
+        
+        // Create scene
+        scene = new QGraphicsScene(this);
+        if (!scene) {
+            if (logger) logger->error("Failed to create QGraphicsScene in ChessBoardWidget constructor");
+            qDebug() << "Failed to create QGraphicsScene in ChessBoardWidget constructor";
+            return;
+        }
+        
+        setScene(scene);
+        
+        // Set up view properties
+        setRenderHint(QPainter::Antialiasing);
+        setRenderHint(QPainter::SmoothPixmapTransform);
+        setDragMode(QGraphicsView::NoDrag);
+        setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        
+        // Initialize pieces array
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                pieces[r][c] = nullptr;
+            }
+        }
+        
+        // Set up the board
+        setupBoard();
+        
+        // Connect theme change signals
+        connect(themeManager, &ThemeManager::boardThemeChanged, this, &ChessBoardWidget::updateTheme);
+        connect(themeManager, &ThemeManager::pieceThemeChanged, this, &ChessBoardWidget::updateTheme);
+        
+        if (logger) logger->info("ChessBoardWidget constructor completed successfully");
+    } catch (const std::exception& e) {
+        if (logger) logger->error(QString("Exception in ChessBoardWidget constructor: %1").arg(e.what()));
+        qDebug() << "Exception in ChessBoardWidget constructor: " << e.what();
+    } catch (...) {
+        if (logger) logger->error("Unknown exception in ChessBoardWidget constructor");
+        qDebug() << "Unknown exception in ChessBoardWidget constructor";
     }
-    
-    // Set up the board
-    setupBoard();
-    
-    // Connect theme change signals
-    connect(themeManager, &ThemeManager::boardThemeChanged, this, &ChessBoardWidget::updateTheme);
-    connect(themeManager, &ThemeManager::pieceThemeChanged, this, &ChessBoardWidget::updateTheme);
 }
 
 ChessBoardWidget::~ChessBoardWidget() {
@@ -1227,23 +1586,46 @@ ChessBoardWidget::~ChessBoardWidget() {
     delete scene;
 }
 
-void ChessBoardWidget::resetBoard() {
-    // Clear the scene
-    scene->clear();
-    
-    // Reset pieces array
-    for (int r = 0; r < 8; ++r) {
-        for (int c = 0; c < 8; ++c) {
-            pieces[r][c] = nullptr;
+void ChessBoardWidget::resetBoard()
+{
+    try {
+        if (!scene) {
+            logger->error("ChessBoardWidget::resetBoard() - Scene is null");
+            // Create scene if it doesn't exist
+            scene = new QGraphicsScene(this);
+            setScene(scene);
+            logger->info("ChessBoardWidget::resetBoard() - Created new scene");
         }
+
+        // Clear the scene safely
+        logger->info("ChessBoardWidget::resetBoard() - Clearing scene");
+        scene->clear();
+
+        logger->info("ChessBoardWidget::resetBoard() - Resetting pieces array");
+        // Reset pieces array
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                pieces[r][c] = nullptr;
+            }
+        }
+        
+        logger->info("ChessBoardWidget::resetBoard() - Clearing highlightItems");
+        // Clear highlight items
+        highlightItems.clear();
+
+        logger->info("ChessBoardWidget::resetBoard() - Clearing hintItems");
+        hintItems.clear();
+        
+        logger->info("ChessBoardWidget::resetBoard() - Setting up board");
+        // Set up the board again
+        setupBoard();
+
+        logger->info("ChessBoardWidget::resetBoard() - Finished");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in resetBoard(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in resetBoard()");
     }
-    
-    // Clear highlight items
-    highlightItems.clear();
-    hintItems.clear();
-    
-    // Set up the board again
-    setupBoard();
 }
 
 void ChessBoardWidget::setupInitialPosition() {
@@ -1473,9 +1855,15 @@ Position ChessBoardWidget::getPositionAt(const QPointF& scenePos) const {
     return boardToLogical(boardPos);
 }
 
-void ChessBoardWidget::updateTheme() {
+void ChessBoardWidget::updateTheme()
+{
+    qDebug() << "From ChessBoardWidget::updateTheme()...";
+
+    qDebug() << "From ChessBoardWidget::updateTheme() -- Invoking resetBoard()";
     // Recreate the board with the new theme
     resetBoard();
+
+    qDebug() << ("From ChessBoardWidget::updateTheme() -- Finished.");
 }
 
 void ChessBoardWidget::showPromotionDialog(const Position& from, const Position& to, PieceColor color) {
@@ -1505,7 +1893,8 @@ void ChessBoardWidget::mousePressEvent(QMouseEvent* event) {
     }
     
     if (event->button() == Qt::LeftButton) {
-        QPointF scenePos = mapToScene(event->pos());
+        QPointF scenePos = mapToScene(event->position().toPoint());
+
         Position pos = getPositionAt(scenePos);
         
         if (pos.isValid()) {
@@ -1537,7 +1926,7 @@ void ChessBoardWidget::mouseReleaseEvent(QMouseEvent* event) {
     }
     
     if (event->button() == Qt::LeftButton && selectedPosition.isValid()) {
-        QPointF scenePos = mapToScene(event->pos());
+        QPointF scenePos = mapToScene(event->position().toPoint());
         Position pos = getPositionAt(scenePos);
         
         if (pos.isValid() && pos != selectedPosition) {
@@ -1562,7 +1951,7 @@ void ChessBoardWidget::dropEvent(QDropEvent* event) {
         return;
     }
     
-    QPointF scenePos = mapToScene(event->pos());
+    QPointF scenePos = mapToScene(event->position().toPoint());
     Position pos = getPositionAt(scenePos);
     
     if (pos.isValid() && selectedPosition.isValid()) {
@@ -1577,15 +1966,37 @@ void ChessBoardWidget::onPromotionSelected(PieceType promotionType) {
     // This is handled in showPromotionDialog
 }
 
-void ChessBoardWidget::setupBoard() {
-    // Create the board squares
-    createSquares();
-    
-    // Set the scene rect
-    scene->setSceneRect(0, 0, 8 * squareSize, 8 * squareSize);
-    
-    // Fit the view to the scene
-    fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+void ChessBoardWidget::setupBoard()
+{
+    try {
+        if (logger) logger->info("ChessBoardWidget::setupBoard() - Start");
+        
+        if (!scene) {
+            if (logger) logger->error("ChessBoardWidget::setupBoard() - Scene is null");
+            scene = new QGraphicsScene(this);
+            setScene(scene);
+            if (logger) logger->info("ChessBoardWidget::setupBoard() - Created new scene");
+        }
+        
+        // Create the board squares
+        createSquares();
+        
+        if (logger) logger->info("ChessBoardWidget::setupBoard() - Setting scene rect");
+        // Set the scene rect
+        scene->setSceneRect(0, 0, 8 * squareSize, 8 * squareSize);
+        
+        if (logger) logger->info("ChessBoardWidget::setupBoard() - Fitting view");
+        // Fit the view to the scene
+        fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+
+        if (logger) logger->info("ChessBoardWidget::setupBoard() - Finished");
+    } catch (const std::exception& e) {
+        if (logger) logger->error(QString("Exception in setupBoard(): %1").arg(e.what()));
+        qDebug() << "Exception in setupBoard():" << e.what();
+    } catch (...) {
+        if (logger) logger->error("Unknown exception in setupBoard()");
+        qDebug() << "Unknown exception in setupBoard()";
+    }
 }
 
 void ChessBoardWidget::updateBoardSize() {
@@ -2257,7 +2668,7 @@ AnalysisWidget::~AnalysisWidget() {
 
 void AnalysisWidget::clear() {
     // Clear evaluation chart
-    QtCharts::QChart* chart = new QtCharts::QChart();
+    QChart* chart = new QChart();
     chart->setTitle("Evaluation");
     chart->legend()->hide();
     evaluationChartView->setChart(chart);
@@ -2317,7 +2728,7 @@ void AnalysisWidget::setupUI() {
     evaluationTab = new QWidget();
     QVBoxLayout* evalLayout = new QVBoxLayout(evaluationTab);
     
-    evaluationChartView = new QtCharts::QChartView(new QtCharts::QChart(), evaluationTab);
+    evaluationChartView = new QChartView(new QChart(), evaluationTab);
     evaluationChartView->setRenderHint(QPainter::Antialiasing);
     evaluationChartView->chart()->setTitle("Evaluation");
     evaluationChartView->chart()->legend()->hide();
@@ -2399,7 +2810,7 @@ void AnalysisWidget::setupUI() {
 
 void AnalysisWidget::createEvaluationChart(const QJsonArray& moveAnalysis) {
     // Create a line series for the evaluation
-    QtCharts::QLineSeries* series = new QtCharts::QLineSeries();
+    QLineSeries* series = new QLineSeries();
     series->setName("Evaluation");
     
     // Add data points
@@ -2416,18 +2827,18 @@ void AnalysisWidget::createEvaluationChart(const QJsonArray& moveAnalysis) {
     }
     
     // Create chart
-    QtCharts::QChart* chart = new QtCharts::QChart();
+    QChart* chart = new QChart();
     chart->addSeries(series);
     chart->setTitle("Evaluation");
     chart->legend()->hide();
     
     // Create axes
-    QtCharts::QValueAxis* axisX = new QtCharts::QValueAxis();
+    QValueAxis* axisX = new QValueAxis();
     axisX->setTitleText("Move");
     axisX->setLabelFormat("%d");
     axisX->setTickCount(std::min(11, moveNumber + 1));
     
-    QtCharts::QValueAxis* axisY = new QtCharts::QValueAxis();
+    QValueAxis* axisY = new QValueAxis();
     axisY->setTitleText("Evaluation (pawns)");
     axisY->setRange(-5, 5);
     axisY->setTickCount(11);
@@ -2438,7 +2849,7 @@ void AnalysisWidget::createEvaluationChart(const QJsonArray& moveAnalysis) {
     series->attachAxis(axisY);
     
     // Add a horizontal line at 0
-    QtCharts::QLineSeries* zeroLine = new QtCharts::QLineSeries();
+    QLineSeries* zeroLine = new QLineSeries();
     zeroLine->append(0, 0);
     zeroLine->append(moveNumber > 0 ? moveNumber - 1 : 1, 0);
     zeroLine->setPen(QPen(Qt::gray, 1, Qt::DashLine));
@@ -2612,7 +3023,7 @@ void ProfileWidget::clear() {
     winRateLabel->setText("Win Rate: 0.0%");
     
     // Clear chart
-    QtCharts::QChart* chart = new QtCharts::QChart();
+    QChart* chart = new QChart();
     chart->setTitle("Game Results");
     statsChartView->setChart(chart);
     
@@ -2658,7 +3069,7 @@ void ProfileWidget::setupUI() {
     infoLayout->addLayout(statsLayout);
     
     // Create stats chart
-    statsChartView = new QtCharts::QChartView(new QtCharts::QChart(), this);
+    statsChartView = new QChartView(new QChart(), this);
     statsChartView->setRenderHint(QPainter::Antialiasing);
     statsChartView->chart()->setTitle("Game Results");
     
@@ -2700,28 +3111,28 @@ void ProfileWidget::setupUI() {
 
 void ProfileWidget::createStatsChart(int wins, int losses, int draws) {
     // Create pie series
-    QtCharts::QPieSeries* series = new QtCharts::QPieSeries();
+    QPieSeries* series = new QPieSeries();
     
     if (wins > 0) {
-        QtCharts::QPieSlice* winsSlice = series->append("Wins", wins);
+        QPieSlice* winsSlice = series->append("Wins", wins);
         winsSlice->setBrush(QColor(76, 175, 80));
         winsSlice->setLabelVisible();
     }
     
     if (losses > 0) {
-        QtCharts::QPieSlice* lossesSlice = series->append("Losses", losses);
+        QPieSlice* lossesSlice = series->append("Losses", losses);
         lossesSlice->setBrush(QColor(244, 67, 54));
         lossesSlice->setLabelVisible();
     }
     
     if (draws > 0) {
-        QtCharts::QPieSlice* drawsSlice = series->append("Draws", draws);
+        QPieSlice* drawsSlice = series->append("Draws", draws);
         drawsSlice->setBrush(QColor(255, 193, 7));
         drawsSlice->setLabelVisible();
     }
     
     // Create chart
-    QtCharts::QChart* chart = new QtCharts::QChart();
+    QChart* chart = new QChart();
     chart->addSeries(series);
     chart->setTitle("Game Results");
     chart->legend()->setAlignment(Qt::AlignBottom);
@@ -3147,7 +3558,8 @@ void MatchmakingWidget::onJoinQueueClicked() {
 }
 
 void MatchmakingWidget::onLeaveQueueClicked() {
-    emit requestMatchmaking(false);
+    TimeControlType timeControl = getSelectedTimeControl();
+    emit requestMatchmaking(false, timeControl);
 }
 
 void MatchmakingWidget::setupUI() {
@@ -3969,54 +4381,91 @@ void GameManager::parseMoveHistory(const QJsonArray& moveHistoryArray) {
 
 // MPChessClient implementation
 MPChessClient::MPChessClient(QWidget* parent)
-    : QMainWindow(parent), ui(new Ui::MPChessClient), replayMode(false), currentReplayIndex(-1) {
-    
+    : QMainWindow(parent), ui(new Ui::MPChessClient), replayMode(false), currentReplayIndex(-1),
+      connectAction(nullptr), disconnectAction(nullptr)
+{    
     // Initialize core components
     logger = new Logger(this);
-    logger->setLogLevel(Logger::LogLevel::INFO);
+    logger->setLogLevel(Logger::LogLevel::DEBUG);
     logger->setLogToFile(true);
+
+    logger->info("MPChessClient: Starting initialization");
+
+    try{
+        networkManager = new NetworkManager(logger, this);
+        themeManager = new ThemeManager(this);
+        audioManager = new AudioManager(this);
+        gameManager = new GameManager(networkManager, logger, this);
+        
+        // Set up UI
+        logger->info("MPChessClient: Setting up UI");
+        setupUI();
+
+        // Set initial connection status
+        if (connectionStatusLabel) {
+            connectionStatusLabel->setText("Not Connected");
+            connectionStatusLabel->setStyleSheet("color: red;");
+        } else {
+            logger->warning("connectionStatusLabel is null in constructor");
+        }
     
-    networkManager = new NetworkManager(logger, this);
-    themeManager = new ThemeManager(this);
-    audioManager = new AudioManager(this);
-    gameManager = new GameManager(networkManager, logger, this);
-    
-    // Set up UI
-    setupUI();
-    
-    // Connect network signals
-    connect(networkManager, &NetworkManager::connected, this, &MPChessClient::onConnected);
-    connect(networkManager, &NetworkManager::disconnected, this, &MPChessClient::onDisconnected);
-    connect(networkManager, &NetworkManager::connectionError, this, &MPChessClient::onConnectionError);
-    connect(networkManager, &NetworkManager::authenticationResult, this, &MPChessClient::onAuthenticationResult);
-    connect(networkManager, &NetworkManager::gameStarted, this, &MPChessClient::onGameStarted);
-    connect(networkManager, &NetworkManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
-    connect(networkManager, &NetworkManager::gameOver, this, &MPChessClient::onGameOver);
-    connect(networkManager, &NetworkManager::moveResult, this, &MPChessClient::onMoveResult);
-    connect(networkManager, &NetworkManager::moveRecommendationsReceived, this, &MPChessClient::onMoveRecommendationsReceived);
-    connect(networkManager, &NetworkManager::matchmakingStatus, this, &MPChessClient::onMatchmakingStatusReceived);
-    connect(networkManager, &NetworkManager::gameHistoryReceived, this, &MPChessClient::onGameHistoryReceived);
-    connect(networkManager, &NetworkManager::gameAnalysisReceived, this, &MPChessClient::onGameAnalysisReceived);
-    connect(networkManager, &NetworkManager::drawOfferReceived, this, &MPChessClient::onDrawOfferReceived);
-    connect(networkManager, &NetworkManager::drawResponseReceived, this, &MPChessClient::onDrawResponseReceived);
-    connect(networkManager, &NetworkManager::leaderboardReceived, this, &MPChessClient::onLeaderboardReceived);
-    
-    // Connect game manager signals
-    connect(gameManager, &GameManager::gameStarted, this, &MPChessClient::onGameStarted);
-    connect(gameManager, &GameManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
-    connect(gameManager, &GameManager::gameEnded, this, &MPChessClient::onGameOver);
-    connect(gameManager, &GameManager::moveRecommendationsUpdated, analysisWidget, &AnalysisWidget::setMoveRecommendations);
-    
-    // Load settings
-    loadSettings();
-    
-    // Update theme
-    updateTheme();
-    
-    // Show login dialog
-    QTimer::singleShot(100, this, &MPChessClient::showLoginDialog);
-    
-    logger->info("MPChessClient initialized");
+        logger->info("MPChessClient: NetworkManager connects come next...");
+        if (networkManager)
+        {
+            // Connect network signals
+            connect(networkManager, &NetworkManager::connected, this, &MPChessClient::onConnected);
+            connect(networkManager, &NetworkManager::disconnected, this, &MPChessClient::onDisconnected);
+            connect(networkManager, &NetworkManager::connectionError, this, &MPChessClient::onConnectionError);
+            connect(networkManager, &NetworkManager::authenticationResult, this, &MPChessClient::onAuthenticationResult);
+            connect(networkManager, &NetworkManager::gameStarted, this, &MPChessClient::onGameStarted);
+            connect(networkManager, &NetworkManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
+            connect(networkManager, &NetworkManager::gameOver, this, &MPChessClient::onGameOver);
+            connect(networkManager, &NetworkManager::moveResult, this, &MPChessClient::onMoveResult);
+            connect(networkManager, &NetworkManager::moveRecommendationsReceived, this, &MPChessClient::onMoveRecommendationsReceived);
+            connect(networkManager, &NetworkManager::matchmakingStatus, this, &MPChessClient::onMatchmakingStatusReceived);
+            connect(networkManager, &NetworkManager::gameHistoryReceived, this, &MPChessClient::onGameHistoryReceived);
+            connect(networkManager, &NetworkManager::gameAnalysisReceived, this, &MPChessClient::onGameAnalysisReceived);
+            connect(networkManager, &NetworkManager::drawOfferReceived, this, &MPChessClient::onDrawOfferReceived);
+            connect(networkManager, &NetworkManager::drawResponseReceived, this, &MPChessClient::onDrawResponseReceived);
+            connect(networkManager, &NetworkManager::leaderboardReceived, this, &MPChessClient::onLeaderboardReceived);
+        }
+        else
+        {
+            logger->error("NetworkManager is null when setting up connections");
+        }
+
+        logger->info("MPChessClient: GameManager connects come next...");
+        if(gameManager)
+        {   
+            // Connect game manager signals
+            connect(gameManager, &GameManager::gameStarted, this, &MPChessClient::onGameStarted);
+            connect(gameManager, &GameManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
+            connect(gameManager, &GameManager::gameEnded, this, &MPChessClient::onGameOver);
+            connect(gameManager, &GameManager::moveRecommendationsUpdated, analysisWidget, &AnalysisWidget::setMoveRecommendations);
+        }
+        else
+        {
+            logger->error("GameManager is null when setting up connections");
+        }
+        
+        logger->info("MPChessClient: connects done, loading settings...");
+        // Load settings
+        loadSettings();
+        
+        logger->info("MPChessClient: connects done, updating theme...");
+        // Update theme
+        updateTheme();
+        
+        logger->info("MPChessClient: Login dialog...");
+        // Show login dialog
+        QTimer::singleShot(100, this, &MPChessClient::showLoginDialog);
+        
+        logger->info("MPChessClient initialized");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception during initialization: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception during initialization");
+    }
 }
 
 MPChessClient::~MPChessClient() {
@@ -4029,8 +4478,33 @@ MPChessClient::~MPChessClient() {
     delete ui;
 }
 
-bool MPChessClient::connectToServer(const QString& host, int port) {
-    return networkManager->connectToServer(host, port);
+bool MPChessClient::connectToServer(const QString& host, int port)
+{
+    try {
+        if (!networkManager) {
+            logger->error("NetworkManager is null in connectToServer()");
+            return false;
+        }
+        
+        logger->info(QString("Attempting to connect to server at %1:%2").arg(host).arg(port));
+        
+        // Disconnect any existing connections first
+        if (networkManager->isConnected()) {
+            logger->info("Disconnecting from existing server before connecting to new one");
+            networkManager->disconnectFromServer();
+            
+            // Give some time for the disconnect to complete
+            QThread::msleep(100);
+        }
+        
+        return networkManager->connectToServer(host, port);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in MPChessClient::connectToServer(): %1").arg(e.what()));
+        return false;
+    } catch (...) {
+        logger->error("Unknown exception in MPChessClient::connectToServer()");
+        return false;
+    }
 }
 
 void MPChessClient::disconnectFromServer() {
@@ -4072,26 +4546,60 @@ void MPChessClient::resizeEvent(QResizeEvent* event) {
     }
 }
 
-void MPChessClient::onConnected() {
-    connectionStatusLabel->setText("Connected");
-    connectionStatusLabel->setStyleSheet("color: green;");
-    
-    // Show login dialog
-    showLoginDialog();
+void MPChessClient::onConnected()
+{
+    try {
+        if (!connectionStatusLabel) {
+            logger->error("connectionStatusLabel is null in onConnected");
+            return;
+        }
+        
+        connectionStatusLabel->setText("Connected");
+        connectionStatusLabel->setStyleSheet("color: green;");
+        
+        // Update menu actions
+        if (connectAction) connectAction->setEnabled(false);
+        if (disconnectAction) disconnectAction->setEnabled(true);
+        
+        logger->info("Connected to server - will show login dialog");
+        
+        // Show login dialog after successful connection with a longer delay
+        // to ensure all UI components are ready
+        QTimer::singleShot(500, this, [this]() {
+            try {
+                showLoginDialog();
+            } catch (const std::exception& e) {
+                logger->error(QString("Exception in delayed showLoginDialog: %1").arg(e.what()));
+            } catch (...) {
+                logger->error("Unknown exception in delayed showLoginDialog");
+            }
+        });
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onConnected(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onConnected()");
+    }
 }
 
-void MPChessClient::onDisconnected() {
-    connectionStatusLabel->setText("Disconnected");
+void MPChessClient::onDisconnected()
+{
+    connectionStatusLabel->setText("Not Connected");
     connectionStatusLabel->setStyleSheet("color: red;");
-    
+
+    // Update menu actions
+    connectAction->setEnabled(true);
+    disconnectAction->setEnabled(false);
+
     // Show message
     showMessage("Disconnected from server", true);
     
-    // Show login dialog
-    showLoginDialog();
+    // Don't automatically show login dialog on disconnect
+    // The user will need to reconnect manually
 }
 
-void MPChessClient::onConnectionError(const QString& errorMessage) {
+void MPChessClient::onConnectionError(const QString& errorMessage)
+{
     connectionStatusLabel->setText("Connection Error");
     connectionStatusLabel->setStyleSheet("color: red;");
     
@@ -4102,7 +4610,8 @@ void MPChessClient::onConnectionError(const QString& errorMessage) {
     audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
 }
 
-void MPChessClient::onAuthenticationResult(bool success, const QString& message) {
+void MPChessClient::onAuthenticationResult(bool success, const QString& message)
+{
     if (success) {
         // Hide login dialog
         if (loginDialog && loginDialog->isVisible()) {
@@ -4129,7 +4638,8 @@ void MPChessClient::onAuthenticationResult(bool success, const QString& message)
     }
 }
 
-void MPChessClient::onGameStarted(const QJsonObject& gameData) {
+void MPChessClient::onGameStarted(const QJsonObject& gameData)
+{
     // Play game start sound
     audioManager->playSoundEffect(AudioManager::SoundEffect::GAME_START);
     
@@ -4321,25 +4831,50 @@ void MPChessClient::onDrawResponseReceived(bool accepted) {
     }
 }
 
-void MPChessClient::onConnectAction() {
-    // Show connect dialog
-    bool ok;
-    QString host = QInputDialog::getText(
-        this, "Connect to Server",
-        "Enter server address (host:port):",
-        QLineEdit::Normal,
-        "localhost:5000",
-        &ok
-    );
-    
-    if (ok && !host.isEmpty()) {
-        // Parse host and port
-        QStringList parts = host.split(":");
-        QString hostName = parts[0];
-        int port = (parts.size() > 1) ? parts[1].toInt() : 5000;
+void MPChessClient::onConnectAction()
+{
+    try {
+        // Check if already connected
+        if (networkManager && networkManager->isConnected()) {
+            QMessageBox::information(this, "Connection Status", 
+                "Already connected to server. Disconnect first if you want to connect to a different server.");
+            return;
+        }
         
-        // Connect to server
-        connectToServer(hostName, port);
+        // Show connect dialog
+        bool ok;
+        QString host = QInputDialog::getText(
+            this, "Connect to Server",
+            "Enter server address (host:port):",
+            QLineEdit::Normal,
+            "localhost:5000",
+            &ok
+        );
+        
+        if (ok && !host.isEmpty()) {
+            // Parse host and port
+            QStringList parts = host.split(":");
+            QString hostName = parts[0];
+            int port = (parts.size() > 1) ? parts[1].toInt() : 5000;
+            
+            logger->info(QString("User initiated connection to %1:%2").arg(hostName).arg(port));
+            
+            // Connect to server
+            bool connected = connectToServer(hostName, port);
+            
+            if (connected) {
+                // Connection successful - the onConnected signal will trigger the login dialog
+                showMessage("Connection initiated...");
+            } else {
+                showMessage("Failed to connect to server", true);
+            }
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onConnectAction(): %1").arg(e.what()));
+        showMessage("Error connecting to server: " + QString(e.what()), true);
+    } catch (...) {
+        logger->error("Unknown exception in onConnectAction()");
+        showMessage("Unknown error connecting to server", true);
     }
 }
 
@@ -4472,168 +5007,242 @@ void MPChessClient::onRequestLeaderboard(bool allPlayers) {
     networkManager->requestLeaderboard(allPlayers);
 }
 
-void MPChessClient::setupUI() {
-    // Set window title
-    setWindowTitle("Chess Client");
-    
-    // Set window icon
-    setWindowIcon(QIcon(":/icons/app_icon.png"));
-    
-    // Create central widget
-    QWidget* centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
-    
-    // Create main layout
-    QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
-    
-    // Create main stack
-    mainStack = new QStackedWidget(centralWidget);
-    
-    // Create tabs for navigation
-    QTabBar* tabBar = new QTabBar(centralWidget);
-    tabBar->addTab("Home");
-    tabBar->addTab("Play");
-    tabBar->addTab("Analysis");
-    tabBar->addTab("Profile");
-    tabBar->addTab("Leaderboard");
-    
-    // Connect tab signals
-    connect(tabBar, &QTabBar::currentChanged, this, [this](int index) {
-        switch (index) {
-            case 0: onHomeTabSelected(); break;
-            case 1: onPlayTabSelected(); break;
-            case 2: onAnalysisTabSelected(); break;
-            case 3: onProfileTabSelected(); break;
-            case 4: onLeaderboardTabSelected(); break;
+void MPChessClient::setupUI()
+{
+    try {
+        logger->info("In MPChessClient::setupUI()");
+        // Set window title
+        setWindowTitle("Chess Client");
+
+        logger->info("In MPChessClient::setupUI() -- Setting Window Icon");
+        // Set window icon
+        setWindowIcon(QIcon(":/icons/app_icon.png"));
+        
+        logger->info("In MPChessClient::setupUI() -- Creating centralWidget");
+        // Create central widget
+        QWidget* centralWidget = new QWidget(this);
+        if (!centralWidget) {
+            logger->error("In MPChessClient::setupUI() -- Failed to create centralWidget");
+            return;
         }
-    });
-    
-    // Create home page
-    QWidget* homePage = new QWidget();
-    QVBoxLayout* homeLayout = new QVBoxLayout(homePage);
-    
-    QLabel* welcomeLabel = new QLabel("Welcome to Chess Client", homePage);
-    QFont welcomeFont = welcomeLabel->font();
-    welcomeFont.setPointSize(welcomeFont.pointSize() + 6);
-    welcomeFont.setBold(true);
-    welcomeLabel->setFont(welcomeFont);
-    welcomeLabel->setAlignment(Qt::AlignCenter);
-    
-    matchmakingWidget = new MatchmakingWidget(homePage);
-    
-    homeLayout->addWidget(welcomeLabel);
-    homeLayout->addWidget(matchmakingWidget);
-    homeLayout->addStretch();
-    
-    // Create game page
-    QWidget* gamePage = new QWidget();
-    QVBoxLayout* gameLayout = new QVBoxLayout(gamePage);
-    
-    // Create game UI
-    createGameUI();
-    
-    // Create analysis page
-    QWidget* analysisPage = new QWidget();
-    QVBoxLayout* analysisLayout = new QVBoxLayout(analysisPage);
-    
-    gameHistoryWidget = new GameHistoryWidget(analysisPage);
-    analysisWidget = new AnalysisWidget(analysisPage);
-    
-    analysisLayout->addWidget(gameHistoryWidget);
-    analysisLayout->addWidget(analysisWidget);
-    
-    // Create profile page
-    QWidget* profilePage = new QWidget();
-    QVBoxLayout* profileLayout = new QVBoxLayout(profilePage);
-    
-    profileWidget = new ProfileWidget(profilePage);
-    
-    profileLayout->addWidget(profileWidget);
-    
-    // Create leaderboard page
-    QWidget* leaderboardPage = new QWidget();
-    QVBoxLayout* leaderboardLayout = new QVBoxLayout(leaderboardPage);
-    
-    leaderboardWidget = new LeaderboardWidget(leaderboardPage);
-    
-    leaderboardLayout->addWidget(leaderboardWidget);
-    
-    // Add pages to stack
-    mainStack->addWidget(homePage);
-    mainStack->addWidget(gamePage);
-    mainStack->addWidget(analysisPage);
-    mainStack->addWidget(profilePage);
-    mainStack->addWidget(leaderboardPage);
-    
-    // Add widgets to main layout
-    mainLayout->addWidget(tabBar);
-    mainLayout->addWidget(mainStack);
-    
-    // Create menus
-    createMenus();
-    
-    // Create status bar
-    createStatusBar();
-    
-    // Connect signals
-    connect(matchmakingWidget, &MatchmakingWidget::requestMatchmaking, this, &MPChessClient::onRequestMatchmaking);
-    connect(gameHistoryWidget, &GameHistoryWidget::gameSelected, this, &MPChessClient::onGameSelected);
-    connect(gameHistoryWidget, &GameHistoryWidget::requestGameHistory, this, &MPChessClient::onRequestGameHistory);
-    connect(analysisWidget, &AnalysisWidget::requestAnalysis, this, &MPChessClient::onRequestGameAnalysis);
-    connect(leaderboardWidget, &LeaderboardWidget::requestAllPlayers, this, &MPChessClient::onRequestLeaderboard);
-    
-    // Set initial size
-    resize(1024, 768);
+        setCentralWidget(centralWidget);
+
+        logger->info("In MPChessClient::setupUI() -- Creating mainLayout");
+        // Create main layout
+        QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
+        if (!mainLayout) {
+            logger->error("In MPChessClient::setupUI() -- Failed to create mainLayout");
+            return;
+        }
+        
+        logger->info("In MPChessClient::setupUI() -- Creating mainStack");
+        // Create main stack
+        mainStack = new QStackedWidget(centralWidget);
+        if (!mainStack) {
+            logger->error("In MPChessClient::setupUI() -- Failed to create mainStack");
+            return;
+        }
+        
+        logger->info("In MPChessClient::setupUI() -- Creating tabBar");
+        // Create tabs for navigation
+        QTabBar* tabBar = new QTabBar(centralWidget);
+        if (!tabBar) {
+            logger->error("In MPChessClient::setupUI() -- Failed to create tabBar");
+            return;
+        }
+        
+        tabBar->addTab("Home");
+        tabBar->addTab("Play");
+        tabBar->addTab("Analysis");
+        tabBar->addTab("Profile");
+        tabBar->addTab("Leaderboard");
+
+        // Connect tab signals
+        connect(tabBar, &QTabBar::currentChanged, this, [this](int index) {
+            switch (index) {
+                case 0: onHomeTabSelected(); break;
+                case 1: onPlayTabSelected(); break;
+                case 2: onAnalysisTabSelected(); break;
+                case 3: onProfileTabSelected(); break;
+                case 4: onLeaderboardTabSelected(); break;
+            }
+        });
+
+        logger->info("In MPChessClient::setupUI() -- Creating home page");
+        // Create home page
+        QWidget* homePage = new QWidget();
+        if (!homePage) {
+            logger->error("In MPChessClient::setupUI() -- Failed to create homePage");
+            return;
+        }
+
+        QVBoxLayout* homeLayout = new QVBoxLayout(homePage);
+        if (!homeLayout) {
+            logger->error("In MPChessClient::setupUI() -- Failed to create homeLayout");
+            return;
+        }
+
+        logger->info("In MPChessClient::setupUI() -- Creating welcome message");
+        QLabel* welcomeLabel = new QLabel("Welcome to Chess Client", homePage);
+        QFont welcomeFont = welcomeLabel->font();
+        welcomeFont.setPointSize(welcomeFont.pointSize() + 6);
+        welcomeFont.setBold(true);
+        welcomeLabel->setFont(welcomeFont);
+        welcomeLabel->setAlignment(Qt::AlignCenter);
+
+        QPushButton* connectButton = new QPushButton("Connect to Server", homePage);
+        connectButton->setMinimumHeight(40);
+        QFont buttonFont = connectButton->font();
+        buttonFont.setPointSize(buttonFont.pointSize() + 2);
+        connectButton->setFont(buttonFont);
+        connect(connectButton, &QPushButton::clicked, this, &MPChessClient::onConnectAction);
+
+        logger->info("In MPChessClient::setupUI() -- Creating matchmaking widget");
+        matchmakingWidget = new MatchmakingWidget(homePage);
+        
+        homeLayout->addWidget(welcomeLabel);
+        homeLayout->addSpacing(20);
+        homeLayout->addWidget(connectButton);
+        homeLayout->addWidget(matchmakingWidget);
+        homeLayout->addStretch();
+
+        logger->info("In MPChessClient::setupUI() -- Creating other pages");
+        // Create other pages
+        QWidget* gamePage = new QWidget();
+        QVBoxLayout* gameLayout = new QVBoxLayout(gamePage);
+        
+        QWidget* analysisPage = new QWidget();
+        QVBoxLayout* analysisLayout = new QVBoxLayout(analysisPage);
+        
+        QWidget* profilePage = new QWidget();
+        QVBoxLayout* profileLayout = new QVBoxLayout(profilePage);
+        
+        QWidget* leaderboardPage = new QWidget();
+        QVBoxLayout* leaderboardLayout = new QVBoxLayout(leaderboardPage);
+
+        logger->info("In MPChessClient::setupUI() -- Creating analysis widgets");
+        // Create analysis widgets
+        gameHistoryWidget = new GameHistoryWidget(analysisPage);
+        analysisWidget = new AnalysisWidget(analysisPage);
+        
+        analysisLayout->addWidget(gameHistoryWidget);
+        analysisLayout->addWidget(analysisWidget);
+
+        logger->info("In MPChessClient::setupUI() -- Creating profile widget");
+        // Create profile widget
+        profileWidget = new ProfileWidget(profilePage);
+        profileLayout->addWidget(profileWidget);
+        
+        logger->info("In MPChessClient::setupUI() -- Creating leaderboard widget");
+        // Create leaderboard widget
+        leaderboardWidget = new LeaderboardWidget(leaderboardPage);
+        leaderboardLayout->addWidget(leaderboardWidget);
+
+        logger->info("In MPChessClient::setupUI() -- Adding pages to stack");
+        // Add pages to stack
+        mainStack->addWidget(homePage);
+        mainStack->addWidget(gamePage);
+        mainStack->addWidget(analysisPage);
+        mainStack->addWidget(profilePage);
+        mainStack->addWidget(leaderboardPage);
+        
+        // Add widgets to main layout
+        mainLayout->addWidget(tabBar);
+        mainLayout->addWidget(mainStack);
+
+        logger->info("In MPChessClient::setupUI() -- Creating game UI");
+        // Create game UI - this must be called after adding pages to stack
+        createGameUI();
+
+        logger->info("In MPChessClient::setupUI() -- Creating menus and status bar");
+        // Create menus
+        createMenus();
+        
+        // Create status bar
+        createStatusBar();
+
+        logger->info("In MPChessClient::setupUI() -- Creating connections");
+        // Connect signals
+        connect(matchmakingWidget, &MatchmakingWidget::requestMatchmaking, this, &MPChessClient::onRequestMatchmaking);
+        connect(gameHistoryWidget, &GameHistoryWidget::gameSelected, this, &MPChessClient::onGameSelected);
+        connect(gameHistoryWidget, &GameHistoryWidget::requestGameHistory, this, &MPChessClient::onRequestGameHistory);
+        connect(analysisWidget, &AnalysisWidget::requestAnalysis, this, &MPChessClient::onRequestGameAnalysis);
+        connect(leaderboardWidget, &LeaderboardWidget::requestAllPlayers, this, &MPChessClient::onRequestLeaderboard);
+        
+        // Set initial size
+        resize(1024, 768);
+        logger->info("Finished MPChessClient::setupUI()");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in setupUI(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in setupUI()");
+    }
 }
 
-void MPChessClient::createMenus() {
-    // Create file menu
-    QMenu* fileMenu = menuBar()->addMenu("&File");
+void MPChessClient::createMenus()
+{
+    try {
+        // Create file menu
+        QMenu* fileMenu = menuBar()->addMenu("&File");
+        
+        connectAction = fileMenu->addAction("&Connect to Server...");
+        if (connectAction) {
+            connectAction->setShortcut(QKeySequence("Ctrl+N"));
+            connect(connectAction, &QAction::triggered, this, &MPChessClient::onConnectAction);
+        } else {
+            logger->error("Failed to create connectAction");
+        }
+        
+        disconnectAction = fileMenu->addAction("&Disconnect");
+        if (disconnectAction) {
+            disconnectAction->setShortcut(QKeySequence("Ctrl+D"));
+            disconnectAction->setEnabled(false);  // Initially disabled
+            connect(disconnectAction, &QAction::triggered, this, &MPChessClient::onDisconnectAction);
+        } else {
+            logger->error("Failed to create disconnectAction");
+        }
     
-    QAction* connectAction = fileMenu->addAction("&Connect to Server...");
-    connectAction->setShortcut(QKeySequence("Ctrl+N"));
-    connect(connectAction, &QAction::triggered, this, &MPChessClient::onConnectAction);
-    
-    QAction* disconnectAction = fileMenu->addAction("&Disconnect");
-    disconnectAction->setShortcut(QKeySequence("Ctrl+D"));
-    connect(disconnectAction, &QAction::triggered, this, &MPChessClient::onDisconnectAction);
-    
-    fileMenu->addSeparator();
-    
-    QAction* settingsAction = fileMenu->addAction("&Settings...");
-    settingsAction->setShortcut(QKeySequence("Ctrl+,"));
-    connect(settingsAction, &QAction::triggered, this, &MPChessClient::onSettingsAction);
-    
-    fileMenu->addSeparator();
-    
-    QAction* exitAction = fileMenu->addAction("E&xit");
-    exitAction->setShortcut(QKeySequence("Alt+F4"));
-    connect(exitAction, &QAction::triggered, this, &MPChessClient::onExitAction);
-    
-    // Create game menu
-    QMenu* gameMenu = menuBar()->addMenu("&Game");
-    
-    QAction* flipBoardAction = gameMenu->addAction("&Flip Board");
-    flipBoardAction->setShortcut(QKeySequence("F"));
-    connect(flipBoardAction, &QAction::triggered, this, &MPChessClient::onFlipBoardAction);
-    
-    QAction* showAnalysisAction = gameMenu->addAction("Show &Analysis");
-    showAnalysisAction->setShortcut(QKeySequence("A"));
-    showAnalysisAction->setCheckable(true);
-    showAnalysisAction->setChecked(true);
-    connect(showAnalysisAction, &QAction::triggered, this, &MPChessClient::onShowAnalysisAction);
-    
-    QAction* showChatAction = gameMenu->addAction("Show &Chat");
-    showChatAction->setShortcut(QKeySequence("C"));
-    showChatAction->setCheckable(true);
-    showChatAction->setChecked(true);
-    connect(showChatAction, &QAction::triggered, this, &MPChessClient::onShowChatAction);
-    
-    // Create help menu
-    QMenu* helpMenu = menuBar()->addMenu("&Help");
-    
-    QAction* aboutAction = helpMenu->addAction("&About");
-    connect(aboutAction, &QAction::triggered, this, &MPChessClient::onAboutAction);
+        fileMenu->addSeparator();
+        
+        QAction* settingsAction = fileMenu->addAction("&Settings...");
+        settingsAction->setShortcut(QKeySequence("Ctrl+,"));
+        connect(settingsAction, &QAction::triggered, this, &MPChessClient::onSettingsAction);
+        
+        fileMenu->addSeparator();
+        
+        QAction* exitAction = fileMenu->addAction("E&xit");
+        exitAction->setShortcut(QKeySequence("Alt+F4"));
+        connect(exitAction, &QAction::triggered, this, &MPChessClient::onExitAction);
+        
+        // Create game menu
+        QMenu* gameMenu = menuBar()->addMenu("&Game");
+        
+        QAction* flipBoardAction = gameMenu->addAction("&Flip Board");
+        flipBoardAction->setShortcut(QKeySequence("F"));
+        connect(flipBoardAction, &QAction::triggered, this, &MPChessClient::onFlipBoardAction);
+        
+        QAction* showAnalysisAction = gameMenu->addAction("Show &Analysis");
+        showAnalysisAction->setShortcut(QKeySequence("A"));
+        showAnalysisAction->setCheckable(true);
+        showAnalysisAction->setChecked(true);
+        connect(showAnalysisAction, &QAction::triggered, this, &MPChessClient::onShowAnalysisAction);
+        
+        QAction* showChatAction = gameMenu->addAction("Show &Chat");
+        showChatAction->setShortcut(QKeySequence("C"));
+        showChatAction->setCheckable(true);
+        showChatAction->setChecked(true);
+        connect(showChatAction, &QAction::triggered, this, &MPChessClient::onShowChatAction);
+        
+        // Create help menu
+        QMenu* helpMenu = menuBar()->addMenu("&Help");
+        
+        QAction* aboutAction = helpMenu->addAction("&About");
+        connect(aboutAction, &QAction::triggered, this, &MPChessClient::onAboutAction);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in MPChessClient::createMenus(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in MPChessClient::createMenus()");
+    }
 }
 
 void MPChessClient::createStatusBar() {
@@ -4648,31 +5257,71 @@ void MPChessClient::createStatusBar() {
     statusBar()->addWidget(gameStatusLabel, 1);
 }
 
-void MPChessClient::createGameUI() {
-    // Create game layout
-    QWidget* gameWidget = mainStack->widget(1);
-    QVBoxLayout* gameLayout = qobject_cast<QVBoxLayout*>(gameWidget->layout());
+void MPChessClient::createGameUI()
+{
+    logger->info("In MPChessClient::createGameUI()...");
+
+    // Check if mainStack is initialized
+    if(mainStack == nullptr) {
+        logger->error("In MPChessClient::createGameUI() -- mainStack is null");
+        return;
+    }
+
+    logger->info("In MPChessClient::createGameUI() -- Creating gameWidget");
     
+    // Create the game page if it doesn't exist yet
+    QWidget* gameWidget = nullptr;
+    if (mainStack->count() <= 1) {
+        // Create a new game widget and add it to the stack
+        gameWidget = new QWidget();
+        QVBoxLayout* gameLayout = new QVBoxLayout(gameWidget);
+        mainStack->addWidget(gameWidget);
+        logger->info("In MPChessClient::createGameUI() -- Created new gameWidget and added to stack");
+    } else {
+        // Get the existing game widget
+        gameWidget = mainStack->widget(1);
+    }
+    
+    if (gameWidget == nullptr) {
+        logger->error("In MPChessClient::createGameUI() -- gameWidget is still null after creation attempt");
+        return;
+    }
+
+    logger->info("In MPChessClient::createGameUI() -- Creating gameLayout");
+    QVBoxLayout* gameLayout = qobject_cast<QVBoxLayout*>(gameWidget->layout());
+    if (gameLayout == nullptr) {
+        // Create layout if it doesn't exist
+        gameLayout = new QVBoxLayout(gameWidget);
+        logger->info("In MPChessClient::createGameUI() -- Created new gameLayout");
+    }
+
+    logger->info("In MPChessClient::createGameUI() -- Creating gameSplitter");
     // Create main game area
     QSplitter* gameSplitter = new QSplitter(Qt::Horizontal, gameWidget);
-    
+
+    logger->info("In MPChessClient::createGameUI() -- Creating boardWidget");
     // Create board widget
-    boardWidget = new ChessBoardWidget(themeManager, audioManager, gameSplitter);
+    boardWidget = new ChessBoardWidget(themeManager, audioManager, gameSplitter, logger);
     boardWidget->setMinimumSize(400, 400);
     
+    logger->info("In MPChessClient::createGameUI() -- Creating sidePanel");
     // Create side panel
     QWidget* sidePanel = new QWidget(gameSplitter);
     QVBoxLayout* sidePanelLayout = new QVBoxLayout(sidePanel);
-    
+
+    logger->info("In MPChessClient::createGameUI() -- Creating capturedPiecesWidget");
     // Create captured pieces widget
     capturedPiecesWidget = new CapturedPiecesWidget(themeManager, sidePanel);
     
+    logger->info("In MPChessClient::createGameUI() -- Creating moveHistoryWidget");
     // Create move history widget
     moveHistoryWidget = new MoveHistoryWidget(sidePanel);
     
+    logger->info("In MPChessClient::createGameUI() -- Creating gameTimerWidget");
     // Create game timer widget
     gameTimerWidget = new GameTimerWidget(sidePanel);
-    
+
+    logger->info("In MPChessClient::createGameUI() -- Creating gameControlLayout...");
     // Create game controls
     QHBoxLayout* gameControlsLayout = new QHBoxLayout();
     
@@ -4681,7 +5330,8 @@ void MPChessClient::createGameUI() {
     
     gameControlsLayout->addWidget(resignButton);
     gameControlsLayout->addWidget(drawButton);
-    
+
+    logger->info("In MPChessClient::createGameUI() -- Creating chatDisplay and chatInput");
     // Create chat area
     chatDisplay = new QTextEdit(sidePanel);
     chatDisplay->setReadOnly(true);
@@ -4689,6 +5339,7 @@ void MPChessClient::createGameUI() {
     chatInput = new QLineEdit(sidePanel);
     chatInput->setPlaceholderText("Type a message...");
     
+    logger->info("In MPChessClient::createGameUI() -- Adding widgets to side panel");
     // Add widgets to side panel
     sidePanelLayout->addWidget(capturedPiecesWidget);
     sidePanelLayout->addWidget(gameTimerWidget);
@@ -4697,20 +5348,35 @@ void MPChessClient::createGameUI() {
     sidePanelLayout->addWidget(chatDisplay);
     sidePanelLayout->addWidget(chatInput);
     
+    logger->info("In MPChessClient::createGameUI() -- Set splitter sizes");
     // Set splitter sizes
     gameSplitter->addWidget(boardWidget);
     gameSplitter->addWidget(sidePanel);
     gameSplitter->setStretchFactor(0, 3);
     gameSplitter->setStretchFactor(1, 1);
     
+    // Clear any existing widgets in the layout
+    if (gameLayout->count() > 0) {
+        QLayoutItem* item;
+        while ((item = gameLayout->takeAt(0)) != nullptr) {
+            if (item->widget()) {
+                item->widget()->deleteLater();
+            }
+            delete item;
+        }
+    }
+    
     // Add game splitter to game layout
     gameLayout->addWidget(gameSplitter);
-    
+
+    logger->info("In MPChessClient::createGameUI() -- Connections");
     // Connect signals
     connect(boardWidget, &ChessBoardWidget::moveRequested, this, &MPChessClient::onMoveRequested);
     connect(boardWidget, &ChessBoardWidget::squareClicked, this, &MPChessClient::onSquareClicked);
     connect(resignButton, &QPushButton::clicked, this, &MPChessClient::onResignClicked);
     connect(drawButton, &QPushButton::clicked, this, &MPChessClient::onDrawOfferClicked);
+
+    logger->info("In MPChessClient::createGameUI() -- Finished");
 }
 
 void MPChessClient::updateBoardFromGameState(const QJsonObject& gameState) {
@@ -4887,26 +5553,67 @@ void MPChessClient::updateTimers(const QJsonObject& gameState) {
     }
 }
 
-void MPChessClient::showLoginDialog() {
-    // Create login dialog if it doesn't exist
-    if (!loginDialog) {
-        loginDialog = new LoginDialog(this);
-        connect(loginDialog, &LoginDialog::loginRequested, networkManager, &NetworkManager::authenticate);
+void MPChessClient::showLoginDialog()
+{
+    try {
+        // Check if connected to server
+        if (!networkManager) {
+            logger->error("NetworkManager is null in showLoginDialog");
+            return;
+        }
+        
+        if (!networkManager->isConnected()) {
+            logger->warning("Attempted to show login dialog when not connected to server");
+            showMessage("Not connected to server. Please connect first.", true);
+            return;
+        }
+        
+        // Create login dialog if it doesn't exist
+        if (!loginDialog) {
+            logger->info("Creating new LoginDialog");
+            loginDialog = new LoginDialog(this);
+            if (!loginDialog) {
+                logger->error("Failed to create LoginDialog");
+                return;
+            }
+            
+            connect(loginDialog, &LoginDialog::loginRequested, 
+                    [this](const QString& username, const QString& password, bool isRegistering) {
+                        if (networkManager) {
+                            networkManager->authenticate(username, password, isRegistering);
+                        } else {
+                            logger->error("NetworkManager is null in login request");
+                        }
+                    });
+        }
+        
+        logger->info("Showing login dialog");
+        // Show the dialog
+        loginDialog->exec();
+        logger->info("Login dialog closed");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in showLoginDialog(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in showLoginDialog()");
     }
-    
-    // Show the dialog
-    loginDialog->exec();
 }
 
-void MPChessClient::showMessage(const QString& message, bool error) {
-    // Show message in status bar
-    statusBar()->showMessage(message, 5000);
-    
-    // Log the message
-    if (error) {
-        logger->error(message);
-    } else {
-        logger->info(message);
+void MPChessClient::showMessage(const QString& message, bool error)
+{
+    try {
+        // Show message in status bar
+        statusBar()->showMessage(message, 5000);
+
+        // Log the message
+        if (error) {
+            logger->error(message);
+        } else {
+            logger->info(message);
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in showMessage(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in showMessage()");
     }
 }
 
@@ -4973,14 +5680,18 @@ void MPChessClient::saveSettings() {
     // Audio settings are saved by the AudioManager
 }
 
-void MPChessClient::loadSettings() {
+void MPChessClient::loadSettings()
+{
+    logger->info("In MPChessClient::loadSettings() -- Start");
     QSettings settings;
-    
+ 
+    logger->info("In MPChessClient::loadSettings() -- Loading Windows Geometry");
     // Load window geometry
     if (settings.contains("window/geometry")) {
         restoreGeometry(settings.value("window/geometry").toByteArray());
     }
     
+    logger->info("In MPChessClient::loadSettings() -- Loading Windows State");
     if (settings.contains("window/state")) {
         restoreState(settings.value("window/state").toByteArray());
     }
@@ -4990,35 +5701,65 @@ void MPChessClient::loadSettings() {
     
     // Theme settings are loaded by the ThemeManager
     // Audio settings are loaded by the AudioManager
+
+    logger->info("In MPChessClient::loadSettings() -- Finished");
 }
 
-void MPChessClient::updateTheme() {
+void MPChessClient::updateTheme()
+{
+    logger->info("In MPChessClient::updateTheme() -- Start... setStyleSheet()...");
     // Apply theme to the application
     setStyleSheet(themeManager->getStyleSheet());
-    
+
+    logger->info("In MPChessClient::updateTheme() -- boardWidget->updateTheme()...");
+    if(boardWidget == nullptr || !boardWidget)
+    {
+        logger->error("In MPChessClient::updateTheme() -- boardWidget is nullptr");
+    }
+
     // Update board theme
     boardWidget->updateTheme();
     
+    logger->info("In MPChessClient::updateTheme() -- capturedPiecesWidget->updateTheme()...");
+
+    if(capturedPiecesWidget == nullptr || !capturedPiecesWidget)
+    {
+        logger->error("In MPChessClient::updateTheme() -- capturedPiecesWidget is nullptr");
+    }
     // Update captured pieces widget
     capturedPiecesWidget->updateTheme();
+
+    logger->info("In MPChessClient::updateTheme() -- Finished");
 }
 
 // Main function
-int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
+int main(int argc, char *argv[])
+{
+    try {
+        QApplication app(argc, argv);
+
+        // Set application information
+        QApplication::setApplicationName("Multiplayer Chess");
+        QApplication::setApplicationVersion("1.0.0");
+        QApplication::setOrganizationName("AWS Samples");
+        QApplication::setOrganizationDomain("mpchessclient.example.com");
     
-    // Set application information
-    QApplication::setApplicationName("Chess Client");
-    QApplication::setApplicationVersion("1.0.0");
-    QApplication::setOrganizationName("Chess Client Team");
-    QApplication::setOrganizationDomain("chessclient.example.com");
-    
-    // Create main window
-    MPChessClient window;
-    window.show();
-    
-    // Connect to server
-    window.connectToServer("localhost", 5000);
-    
-    return app.exec();
+        // Create main window
+        MPChessClient window;
+        window.show();
+
+/*      // Commented to disable auto-connection
+        // Connect to server with a slight delay to ensure UI is fully initialized
+        QTimer::singleShot(500, [&window]() {
+            window.connectToServer("localhost", 5000);
+        });
+*/
+        return app.exec();
+    } catch (const std::exception& e) {
+        qCritical() << "ERROR: Unhandled exception in main(): " << e.what();
+        return 1;
+    } catch (...) {
+        qCritical() << "ERROR: Unknown unhandled exception in main()";
+        return 1;
+    }
 }

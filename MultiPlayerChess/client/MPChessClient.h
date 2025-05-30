@@ -25,7 +25,7 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QSvgRenderer>
-#include <QSound>
+#include <QSoundEffect>
 #include <QMediaPlayer>
 #include <QAudioOutput>
 #include <QSlider>
@@ -48,14 +48,15 @@
 #include <QWaitCondition>
 #include <QFuture>
 #include <QtConcurrent>
-#include <QChart>
-#include <QChartView>
-#include <QLineSeries>
-#include <QValueAxis>
-#include <QBarSeries>
-#include <QBarSet>
-#include <QPieSeries>
-#include <QPieSlice>
+#include <QtCharts>
+#include <QtCharts/QChart>
+#include <QtCharts/QChartView>
+#include <QtCharts/QLineSeries>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
+#include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
 #include <QGraphicsDropShadowEffect>
 #include <QPropertyAnimation>
 #include <QParallelAnimationGroup>
@@ -65,6 +66,8 @@
 #include <QSignalTransition>
 #include <QEventTransition>
 #include <QLoggingCategory>
+#include <QHBoxLayout>
+#include <QTextEdit>
 
 #include <vector>
 #include <map>
@@ -85,6 +88,17 @@
 QT_BEGIN_NAMESPACE
 namespace Ui { class MPChessClient; }
 QT_END_NAMESPACE
+
+namespace QtCharts {
+    class QChart;
+    class QChartView;
+    class QLineSeries;
+    class QValueAxis;
+    class QBarSeries;
+    class QBarSet;
+    class QPieSeries;
+    class QPieSlice;
+}
 
 // Forward declarations
 class ChessBoardWidget;
@@ -437,6 +451,7 @@ private slots:
     void onError(QAbstractSocket::SocketError socketError);
     void onReadyRead();
     void onPingTimer();
+    void emitConnectedSignal();
 
 private:
     Logger* logger;
@@ -446,6 +461,7 @@ private:
     
     void sendMessage(const QJsonObject& message);
     void processMessage(const QJsonObject& message);
+    void processBuffer();
     
     // Helper methods for processing different message types
     void processAuthenticationResult(const QJsonObject& data);
@@ -610,7 +626,11 @@ private:
 /**
  * @brief Class representing a chess piece on the board
  */
-class ChessPieceItem : public QGraphicsItem {
+class ChessPieceItem : public QObject, public QGraphicsItem {
+    Q_OBJECT
+    Q_INTERFACES(QGraphicsItem)
+    Q_PROPERTY(QPointF pos READ pos WRITE setPos)
+
 public:
     ChessPieceItem(PieceType type, PieceColor color, ThemeManager* themeManager, int squareSize);
     ~ChessPieceItem();
@@ -649,7 +669,7 @@ class ChessBoardWidget : public QGraphicsView {
     Q_OBJECT
     
 public:
-    ChessBoardWidget(ThemeManager* themeManager, AudioManager* audioManager, QWidget* parent = nullptr);
+    ChessBoardWidget(ThemeManager* themeManager, AudioManager* audioManager, QWidget* parent = nullptr, Logger* logger = nullptr);
     ~ChessBoardWidget();
     
     void resetBoard();
@@ -715,6 +735,7 @@ private:
     PieceColor playerColor;
     bool interactive;
     QString currentGameId;
+    Logger* logger;
     
     Position selectedPosition;
     Position dragStartPosition;
@@ -876,7 +897,7 @@ private:
     QWidget* recommendationsTab;
     QWidget* mistakesTab;
     
-    QtCharts::QChartView* evaluationChartView;
+    QChartView* evaluationChartView;
     QTableWidget* recommendationsTable;
     QTableWidget* mistakesTable;
     
@@ -890,6 +911,7 @@ private:
     void createEvaluationChart(const QJsonArray& moveAnalysis);
     void populateRecommendationsTable(const QJsonArray& recommendations);
     void populateMistakesTable(const QJsonObject& mistakes);
+    void addMistakeToTable(const QJsonObject& mistakeObj, const QString& type);
 };
 
 /**
@@ -916,7 +938,7 @@ private:
     QLabel* drawsLabel;
     QLabel* winRateLabel;
     
-    QtCharts::QChartView* statsChartView;
+    QChartView* statsChartView;
     QTableWidget* recentGamesTable;
     
     void setupUI();
@@ -1283,7 +1305,11 @@ private:
     // Status indicators
     QLabel* connectionStatusLabel;
     QLabel* gameStatusLabel;
-    
+
+    // Connection actions
+    QAction* connectAction;
+    QAction* disconnectAction;
+
     // Chat
     QTextEdit* chatDisplay;
     QLineEdit* chatInput;
