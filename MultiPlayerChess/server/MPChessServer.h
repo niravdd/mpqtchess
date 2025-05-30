@@ -254,6 +254,8 @@ public:
     ChessBoard();
     ~ChessBoard() = default;
     
+    friend class ChessSerializer;
+
     // Initialize the board with pieces in starting positions
     void initialize();
     
@@ -543,7 +545,7 @@ private:
     int getSearchDepth() const;
     
     // Evaluate a single piece
-    double evaluatePiece(const ChessPiece* piece, const Position& pos) const;
+    double evaluatePiece(const ChessPiece* piece, const Position& pos, const ChessBoard& board) const;
     
     // Piece-square tables for positional evaluation
     static const std::array<std::array<double, 8>, 8> pawnTable;
@@ -1006,8 +1008,8 @@ private:
     // Maps to track clients, players, and games
     QMap<QTcpSocket*, ChessPlayer*> socketToPlayer;
     QMap<std::string, ChessPlayer*> usernamesToPlayers;
-    QMap<std::string, std::unique_ptr<ChessGame>> activeGames;
     QMap<ChessPlayer*, std::string> playerToGameId;
+    std::map<std::string, std::unique_ptr<ChessGame>> activeGames;
     
     // Server statistics
     int totalGamesPlayed;

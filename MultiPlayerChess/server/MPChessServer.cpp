@@ -1858,7 +1858,7 @@ double ChessAI::evaluatePosition(const ChessBoard& board, PieceColor color) cons
             Position pos(r, c);
             const ChessPiece* piece = board.getPiece(pos);
             if (piece) {
-                score += evaluatePiece(piece, pos);
+                score += evaluatePiece(piece, pos, board);
             }
         }
     }
@@ -1981,7 +1981,7 @@ int ChessAI::getSearchDepth() const {
     }
 }
 
-double ChessAI::evaluatePiece(const ChessPiece* piece, const Position& pos) const {
+double ChessAI::evaluatePiece(const ChessPiece* piece, const Position& pos, const ChessBoard& board) const {
     if (!piece) return 0.0;
     
     double value = 0.0;
@@ -1994,6 +1994,7 @@ double ChessAI::evaluatePiece(const ChessPiece* piece, const Position& pos) cons
         case PieceType::ROOK:   value = 5.0; break;
         case PieceType::QUEEN:  value = 9.0; break;
         case PieceType::KING:   value = 100.0; break;
+        case PieceType::EMPTY:  value = 0.0; break;
         default: value = 0.0; break;
     }
     
@@ -2023,25 +2024,30 @@ double ChessAI::evaluatePiece(const ChessPiece* piece, const Position& pos) cons
             value += queenTable[row][col] * 0.1;
             break;
         case PieceType::KING:
-            // Use different tables for middle game and end game
-            // Simple heuristic: if both sides have queens, it's middle game
-            bool isEndGame = true;
-            for (int r = 0; r < 8; ++r) {
-                for (int c = 0; c < 8; ++c) {
-                    const ChessPiece* p = board.getPiece(Position(r, c));
-                    if (p && p->getType() == PieceType::QUEEN) {
-                        isEndGame = false;
-                        break;
+            {
+                // Use different tables for middle game and end game
+                // Simple heuristic: if both sides have queens, it's middle game
+                bool isEndGame = true;
+                for (int r = 0; r < 8; ++r) {
+                    for (int c = 0; c < 8; ++c) {
+                        const ChessPiece* p = board.getPiece(Position(r, c));
+                        if (p && p->getType() == PieceType::QUEEN) {
+                            isEndGame = false;
+                            break;
+                        }
                     }
+                    if (!isEndGame) break;
                 }
-                if (!isEndGame) break;
+                
+                if (isEndGame) {
+                    value += kingEndGameTable[row][col] * 0.1;
+                } else {
+                    value += kingMiddleGameTable[row][col] * 0.1;
+                }
+                break;
             }
-            
-            if (isEndGame) {
-                value += kingEndGameTable[row][col] * 0.1;
-            } else {
-                value += kingMiddleGameTable[row][col] * 0.1;
-            }
+        case PieceType::EMPTY:
+            value += 0.0;
             break;
     }
     
@@ -3630,7 +3636,7 @@ void MPChessServer::handleMatchmakingTimer() {
 void MPChessServer::handleGameTimerUpdate() {
     // Update timers for all active games
     for (auto it = activeGames.begin(); it != activeGames.end(); ++it) {
-        ChessGame* game = it.value().get();
+        ChessGame* game = it->second.get();
         if (!game->isOver()) {
             game->updateTimers();
             
@@ -3885,7 +3891,7 @@ void MPChessServer::endGame(const std::string& gameId, GameResult result) {
         return;
     }
     
-    ChessGame* game = it.value().get();
+    ChessGame* game = it->second.get();
     if (game->isOver()) {
         return;  // Game already over
     }
@@ -4050,7 +4056,7 @@ void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& da
         return;
     }
     
-    ChessGame* game = it.value().get();
+    ChessGame* game = it->second.get();
     
     // Parse the move
     ChessMove move = ChessMove::fromAlgebraic(moveStr);
@@ -4226,7 +4232,7 @@ void MPChessServer::processGameHistoryRequest(QTcpSocket* socket, const QJsonObj
         if (it != activeGames.end()) {
             // Game is active
             response["success"] = true;
-            response["gameHistory"] = it.value()->getGameHistoryJson();
+            response["gameHistory"] = it->second->getGameHistoryJson();
         } else {
             // Try to load the game from disk
             std::string filePath = getGameHistoryPath() + "/" + gameId + ".json";
@@ -4254,7 +4260,7 @@ void MPChessServer::processGameHistoryRequest(QTcpSocket* socket, const QJsonObj
         
         // Add active games
         for (auto it = activeGames.begin(); it != activeGames.end(); ++it) {
-            ChessGame* game = it.value().get();
+            ChessGame* game = it->second.get();
             ChessPlayer* whitePlayer = game->getWhitePlayer();
             ChessPlayer* blackPlayer = game->getBlackPlayer();
             
@@ -4281,7 +4287,7 @@ void MPChessServer::processGameHistoryRequest(QTcpSocket* socket, const QJsonObj
         // Add past games from the player's history
         for (const std::string& gameId : player->getGameHistory()) {
             // Skip active games
-            if (activeGames.contains(QString::fromStdString(gameId))) {
+            if (activeGames.find(gameId) != activeGames.end()) {
                 continue;
             }
             
@@ -4332,7 +4338,7 @@ void MPChessServer::processGameAnalysisRequest(QTcpSocket* socket, const QJsonOb
     auto it = activeGames.find(gameId);
     if (it != activeGames.end()) {
         // Game is active
-        ChessGame* game = it.value().get();
+        ChessGame* game = it->second.get();
         
         // Only allow analysis if the game is over or the player is part of the game
         ChessPlayer* whitePlayer = game->getWhitePlayer();
@@ -4417,7 +4423,7 @@ void MPChessServer::processResignRequest(QTcpSocket* socket, const QJsonObject& 
         return;
     }
     
-    ChessGame* game = it.value().get();
+    ChessGame* game = it->second.get();
     
     // Handle resignation
     game->handleResignation(player);
@@ -4470,7 +4476,7 @@ void MPChessServer::processDrawOfferRequest(QTcpSocket* socket, const QJsonObjec
         return;
     }
     
-    ChessGame* game = it.value().get();
+    ChessGame* game = it->second.get();
     
     // Handle draw offer
     if (game->handleDrawOffer(player)) {
@@ -4523,7 +4529,7 @@ void MPChessServer::processDrawResponseRequest(QTcpSocket* socket, const QJsonOb
         return;
     }
     
-    ChessGame* game = it.value().get();
+    ChessGame* game = it->second.get();
     
     // Handle draw response
     game->handleDrawResponse(player, accepted);
@@ -4727,7 +4733,7 @@ void MPChessServer::cleanupDisconnectedPlayer(ChessPlayer* player) {
         auto it = activeGames.find(gameId);
         
         if (it != activeGames.end()) {
-            ChessGame* game = it.value().get();
+            ChessGame* game = it->second.get();
             
             // If the game is not over, handle as a resignation
             if (!game->isOver()) {
