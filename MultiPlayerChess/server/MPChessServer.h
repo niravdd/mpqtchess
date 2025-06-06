@@ -49,6 +49,7 @@
 #include <sstream>
 #include <iostream>
 #include <iomanip>
+#include <set>
 
 // Forward declarations
 class ChessGame;
@@ -193,7 +194,7 @@ struct Position {
 class ChessPiece {
 public:
     ChessPiece(PieceType type, PieceColor color);
-    virtual ~ChessPiece() = default;
+    virtual ~ChessPiece() = default;  // Ensure virtual destructor
     
     PieceType getType() const;
     PieceColor getColor() const;
@@ -959,6 +960,9 @@ public:
     
     // Get server statistics
     QJsonObject getServerStats() const;
+
+    void setLogLevel(int level);
+    std::unique_ptr<ChessLogger>& getLogger(void) { return logger; }
 
     // Process a leaderboard request
     void processLeaderboardRequest(QTcpSocket* socket, const QJsonObject& data);

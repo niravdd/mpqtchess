@@ -504,53 +504,102 @@ ChessBoard::ChessBoard() : currentTurn(PieceColor::WHITE), enPassantTarget(-1, -
     initialize();
 }
 
-void ChessBoard::initialize() {
-    // Clear the board
-    for (int r = 0; r < 8; ++r) {
-        for (int c = 0; c < 8; ++c) {
-            board[r][c] = nullptr;
+void ChessBoard::initialize()
+{
+    try {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::initialize() - Starting board initialization");
         }
+        
+        // Clear the board
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                board[r][c] = nullptr;
+            }
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::initialize() - Board cleared, placing white pieces");
+        }
+        
+        // Place white pieces
+        try {
+            // Use make_unique with explicit types
+            board[0][0] = std::make_unique<Rook>(PieceColor::WHITE);
+            board[0][1] = std::make_unique<Knight>(PieceColor::WHITE);
+            board[0][2] = std::make_unique<Bishop>(PieceColor::WHITE);
+            board[0][3] = std::make_unique<Queen>(PieceColor::WHITE);
+            board[0][4] = std::make_unique<King>(PieceColor::WHITE);
+            board[0][5] = std::make_unique<Bishop>(PieceColor::WHITE);
+            board[0][6] = std::make_unique<Knight>(PieceColor::WHITE);
+            board[0][7] = std::make_unique<Rook>(PieceColor::WHITE);
+            
+            for (int c = 0; c < 8; ++c) {
+                board[1][c] = std::make_unique<Pawn>(PieceColor::WHITE);
+            }
+            
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessBoard::initialize() - White pieces placed, placing black pieces");
+            }
+            
+            // Place black pieces
+            board[7][0] = std::make_unique<Rook>(PieceColor::BLACK);
+            board[7][1] = std::make_unique<Knight>(PieceColor::BLACK);
+            board[7][2] = std::make_unique<Bishop>(PieceColor::BLACK);
+            board[7][3] = std::make_unique<Queen>(PieceColor::BLACK);
+            board[7][4] = std::make_unique<King>(PieceColor::BLACK);
+            board[7][5] = std::make_unique<Bishop>(PieceColor::BLACK);
+            board[7][6] = std::make_unique<Knight>(PieceColor::BLACK);
+            board[7][7] = std::make_unique<Rook>(PieceColor::BLACK);
+            
+            for (int c = 0; c < 8; ++c) {
+                board[6][c] = std::make_unique<Pawn>(PieceColor::BLACK);
+            }
+        } catch (const std::exception& e) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessBoard::initialize() - Exception placing pieces: " + std::string(e.what()));
+            }
+            throw std::runtime_error("Error placing chess pieces: " + std::string(e.what()));
+        } catch (...) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessBoard::initialize() - Unknown exception placing pieces");
+            }
+            throw std::runtime_error("Unknown error placing chess pieces");
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::initialize() - All pieces placed, resetting game state");
+        }
+        
+        // Reset state
+        currentTurn = PieceColor::WHITE;
+        enPassantTarget = Position(-1, -1);
+        moveHistory.clear();
+        capturedWhitePieces.clear();
+        capturedBlackPieces.clear();
+        halfMoveClock = 0;
+        boardStates.clear();
+        
+        // Add initial board state
+        boardStates.push_back(getBoardStateString());
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::initialize() - Board initialization complete");
+        }
+    } catch (const std::exception& e) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::initialize() - Fatal error: " + std::string(e.what()));
+        }
+        throw std::runtime_error("Error initializing board: " + std::string(e.what()));
+    } catch (...) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::initialize() - Unknown fatal error");
+        }
+        throw std::runtime_error("Unknown error initializing board");
     }
-    
-    // Place white pieces
-    board[0][0] = std::make_unique<Rook>(PieceColor::WHITE);
-    board[0][1] = std::make_unique<Knight>(PieceColor::WHITE);
-    board[0][2] = std::make_unique<Bishop>(PieceColor::WHITE);
-    board[0][3] = std::make_unique<Queen>(PieceColor::WHITE);
-    board[0][4] = std::make_unique<King>(PieceColor::WHITE);
-    board[0][5] = std::make_unique<Bishop>(PieceColor::WHITE);
-    board[0][6] = std::make_unique<Knight>(PieceColor::WHITE);
-    board[0][7] = std::make_unique<Rook>(PieceColor::WHITE);
-    
-    for (int c = 0; c < 8; ++c) {
-        board[1][c] = std::make_unique<Pawn>(PieceColor::WHITE);
-    }
-    
-    // Place black pieces
-    board[7][0] = std::make_unique<Rook>(PieceColor::BLACK);
-    board[7][1] = std::make_unique<Knight>(PieceColor::BLACK);
-    board[7][2] = std::make_unique<Bishop>(PieceColor::BLACK);
-    board[7][3] = std::make_unique<Queen>(PieceColor::BLACK);
-    board[7][4] = std::make_unique<King>(PieceColor::BLACK);
-    board[7][5] = std::make_unique<Bishop>(PieceColor::BLACK);
-    board[7][6] = std::make_unique<Knight>(PieceColor::BLACK);
-    board[7][7] = std::make_unique<Rook>(PieceColor::BLACK);
-    
-    for (int c = 0; c < 8; ++c) {
-        board[6][c] = std::make_unique<Pawn>(PieceColor::BLACK);
-    }
-    
-    // Reset state
-    currentTurn = PieceColor::WHITE;
-    enPassantTarget = Position(-1, -1);
-    moveHistory.clear();
-    capturedWhitePieces.clear();
-    capturedBlackPieces.clear();
-    halfMoveClock = 0;
-    boardStates.clear();
-    
-    // Add initial board state
-    boardStates.push_back(getBoardStateString());
 }
 
 const ChessPiece* ChessBoard::getPiece(const Position& pos) const {
@@ -645,55 +694,226 @@ MoveValidationStatus ChessBoard::movePiece(const ChessMove& move, bool validateO
     return MoveValidationStatus::VALID;
 }
 
-bool ChessBoard::isUnderAttack(const Position& pos, PieceColor attackerColor) const {
-    for (int r = 0; r < 8; ++r) {
-        for (int c = 0; c < 8; ++c) {
+bool ChessBoard::isUnderAttack(const Position& pos, PieceColor attackerColor) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isUnderAttack() - Checking...");
+    }
+
+    // Check direct attacks from each piece type without using getPossibleMoves
+    for (int r = 0; r < 8; ++r)
+    {
+        for (int c = 0; c < 8; ++c)
+        {
             Position attackerPos(r, c);
             const ChessPiece* attacker = getPiece(attackerPos);
-            if (attacker && attacker->getColor() == attackerColor) {
-                std::vector<Position> moves = attacker->getPossibleMoves(attackerPos, *this);
-                if (std::find(moves.begin(), moves.end(), pos) != moves.end()) {
+            if (!attacker || attacker->getColor() != attackerColor) {
+                continue;
+            }
+
+            // Check based on piece type and movement patterns
+            PieceType type = attacker->getType();
+            
+            // Pawn attacks
+            if (type == PieceType::PAWN) {
+                int direction = (attackerColor == PieceColor::WHITE) ? 1 : -1;
+                if ((attackerPos.row + direction == pos.row) && 
+                    (attackerPos.col + 1 == pos.col || attackerPos.col - 1 == pos.col)) {
+                    if (server && server->getLogger()) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a pawn");
+                    }
+                    return true;
+                }
+            }
+            
+            // Knight attacks
+            else if (type == PieceType::KNIGHT) {
+                int rowDiff = std::abs(pos.row - attackerPos.row);
+                int colDiff = std::abs(pos.col - attackerPos.col);
+                if ((rowDiff == 1 && colDiff == 2) || (rowDiff == 2 && colDiff == 1)) {
+                    if (server && server->getLogger()) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a knight");
+                    }
+                    return true;
+                }
+            }
+            
+            // Bishop/Queen diagonal attacks
+            else if (type == PieceType::BISHOP || type == PieceType::QUEEN) {
+                if (std::abs(pos.row - attackerPos.row) == std::abs(pos.col - attackerPos.col)) {
+                    // Check if path is clear
+                    int rowStep = (pos.row > attackerPos.row) ? 1 : (pos.row < attackerPos.row) ? -1 : 0;
+                    int colStep = (pos.col > attackerPos.col) ? 1 : (pos.col < attackerPos.col) ? -1 : 0;
+                    
+                    bool pathClear = true;
+                    int r = attackerPos.row + rowStep;
+                    int c = attackerPos.col + colStep;
+                    
+                    while (r != pos.row && c != pos.col) {
+                        if (getPiece(Position(r, c)) != nullptr) {
+                            pathClear = false;
+                            break;
+                        }
+                        r += rowStep;
+                        c += colStep;
+                    }
+                    
+                    if (pathClear) {
+                        if (server && server->getLogger()) {
+                            server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack diagonally");
+                        }
+                        return true;
+                    }
+                }
+            }
+            
+            // Rook/Queen straight attacks
+            if (type == PieceType::ROOK || type == PieceType::QUEEN) {
+                if (pos.row == attackerPos.row || pos.col == attackerPos.col) {
+                    // Check if path is clear
+                    int rowStep = (pos.row > attackerPos.row) ? 1 : (pos.row < attackerPos.row) ? -1 : 0;
+                    int colStep = (pos.col > attackerPos.col) ? 1 : (pos.col < attackerPos.col) ? -1 : 0;
+                    
+                    bool pathClear = true;
+                    int r = attackerPos.row + rowStep;
+                    int c = attackerPos.col + colStep;
+                    
+                    while ((rowStep != 0 && r != pos.row) || (colStep != 0 && c != pos.col)) {
+                        if (getPiece(Position(r, c)) != nullptr) {
+                            pathClear = false;
+                            break;
+                        }
+                        r += rowStep;
+                        c += colStep;
+                    }
+                    
+                    if (pathClear) {
+                        if (server && server->getLogger()) {
+                            server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack in straight line");
+                        }
+                        return true;
+                    }
+                }
+            }
+            
+            // King attacks (adjacent squares)
+            else if (type == PieceType::KING) {
+                int rowDiff = std::abs(pos.row - attackerPos.row);
+                int colDiff = std::abs(pos.col - attackerPos.col);
+                if (rowDiff <= 1 && colDiff <= 1 && (rowDiff != 0 || colDiff != 0)) {
+                    if (server && server->getLogger()) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a king");
+                    }
                     return true;
                 }
             }
         }
     }
+
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is not under attack");
+    }
+
     return false;
 }
 
-bool ChessBoard::isInCheck(PieceColor color) const {
+bool ChessBoard::isInCheck(PieceColor color) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isInCheck() - Checking...");
+    }
+
     Position kingPos = getKingPosition(color);
-    if (!kingPos.isValid()) return false;
+    if (!kingPos.isValid())
+    {
+        if (server && server->getLogger())
+        {
+            server->getLogger()->debug("ChessBoard::isInCheck() - King Position is invalid...");
+        }
+        return false;
+    }
     
     PieceColor opponentColor = (color == PieceColor::WHITE) ? PieceColor::BLACK : PieceColor::WHITE;
+
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isInCheck() - Checking done. Returning state if King is under attack...");
+    }
+
     return isUnderAttack(kingPos, opponentColor);
 }
 
-bool ChessBoard::isInCheckmate(PieceColor color) const {
-    if (!isInCheck(color)) return false;
+bool ChessBoard::isInCheckmate(PieceColor color) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking...");
+    }
+
+    if (!isInCheck(color))
+    {
+        if (server && server->getLogger())
+        {
+            server->getLogger()->debug("ChessBoard::isInCheckmate() - Current colour king is not in check, returning...");
+        }
+        return false;
+    }
     
     // Check if any move can get the king out of check
-    for (int r = 0; r < 8; ++r) {
-        for (int c = 0; c < 8; ++c) {
+    for (int r = 0; r < 8; ++r)
+    {
+        for (int c = 0; c < 8; ++c)
+        {
             Position pos(r, c);
             const ChessPiece* piece = getPiece(pos);
-            if (piece && piece->getColor() == color) {
+            if (piece && piece->getColor() == color)
+            {
                 std::vector<Position> moves = piece->getPossibleMoves(pos, *this);
-                for (const Position& to : moves) {
+                for (const Position& to : moves)
+                {
                     ChessMove move(pos, to);
-                    if (!wouldLeaveInCheck(move, color)) {
+                    if (!wouldLeaveInCheck(move, color))
+                    {
+                        if (server && server->getLogger())
+                        {
+                            server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking done. No, not checkmate'd yet, returning...");
+                        }
                         return false;
                     }
                 }
             }
         }
     }
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking done. Yes, in checkmate...");
+    }
     
     return true;
 }
 
-bool ChessBoard::isInStalemate(PieceColor color) const {
-    if (isInCheck(color)) return false;
+bool ChessBoard::isInStalemate(PieceColor color) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isInStalemate() - Checking...");
+    }
+
+    if (isInCheck(color))
+    {
+        if (server && server->getLogger())
+        {
+            server->getLogger()->debug("ChessBoard::isInStalemate() - Checking, we're note in check; returning...");
+        }
+        return false;
+    }
     
     // Check if any legal move is available
     for (int r = 0; r < 8; ++r) {
@@ -704,18 +924,29 @@ bool ChessBoard::isInStalemate(PieceColor color) const {
                 std::vector<Position> moves = piece->getPossibleMoves(pos, *this);
                 for (const Position& to : moves) {
                     ChessMove move(pos, to);
-                    if (!wouldLeaveInCheck(move, color)) {
+                    if (!wouldLeaveInCheck(move, color))
+                    {
+                        if (server && server->getLogger())
+                        {
+                            server->getLogger()->debug("ChessBoard::isInStalemate() - Its not wouldLeaveInCheck(), returning...");
+                        }
                         return false;
                     }
                 }
             }
         }
     }
+
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::isInStalemate() - Yes...");
+    }
     
     return true;
 }
 
-std::vector<ChessMove> ChessBoard::getAllValidMoves(PieceColor color) const {
+std::vector<ChessMove> ChessBoard::getAllValidMoves(PieceColor color) const
+{
     std::vector<ChessMove> validMoves;
     
     for (int r = 0; r < 8; ++r) {
@@ -1277,13 +1508,53 @@ ChessPlayer ChessPlayer::fromJson(const QJsonObject& json) {
 ChessGame::ChessGame(ChessPlayer* whitePlayer, ChessPlayer* blackPlayer, 
                      const std::string& gameId, TimeControlType timeControl)
     : gameId(gameId), whitePlayer(whitePlayer), blackPlayer(blackPlayer),
-      board(std::make_unique<ChessBoard>()), result(GameResult::IN_PROGRESS),
-      timeControl(timeControl), drawOffered(false), drawOfferingPlayer(nullptr) {
+      result(GameResult::IN_PROGRESS), timeControl(timeControl),
+      drawOffered(false), drawOfferingPlayer(nullptr)
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    
+    if (server && server->getLogger()) {
+        server->getLogger()->debug("ChessGame constructor - Creating game " + gameId);
+    }
+    
+    if (!whitePlayer || !blackPlayer) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessGame constructor - Null player provided to ChessGame constructor for game " + gameId);
+        }
+        throw std::invalid_argument("Null player provided to ChessGame constructor");
+    }
+    
+    try {
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame constructor - Creating ChessBoard for game " + gameId);
+        }
+        
+        board = std::make_unique<ChessBoard>();
+        
+        if (!board) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessGame constructor - Failed to create ChessBoard for game " + gameId);
+            }
+            throw std::runtime_error("Failed to create ChessBoard");
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame constructor - ChessBoard created successfully for game " + gameId);
+        }
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessGame constructor - Error creating ChessBoard for game " + gameId + ": " + std::string(e.what()));
+        }
+        throw std::runtime_error("Error creating ChessBoard: " + std::string(e.what()));
+    }
     
     startTime = QDateTime::currentDateTime();
     lastMoveTime = startTime;
     
-    initializeTimeControl();
+    if (server && server->getLogger()) {
+        server->getLogger()->debug("ChessGame constructor - Game " + gameId + " created successfully with players: " + 
+                                  whitePlayer->getUsername() + " (White) and " + blackPlayer->getUsername() + " (Black)");
+    }
 }
 
 ChessGame::~ChessGame() {
@@ -1373,22 +1644,89 @@ MoveValidationStatus ChessGame::processMove(ChessPlayer* player, const ChessMove
     return status;
 }
 
-void ChessGame::start() {
-    startTime = QDateTime::currentDateTime();
-    lastMoveTime = startTime;
+void ChessGame::start()
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger()) {
+        server->getLogger()->debug("ChessGame::start() - Starting game " + gameId);
+    }
     
-    // Initialize the board
-    board->initialize();
-    
-    // Set the player colors
-    whitePlayer->setColor(PieceColor::WHITE);
-    blackPlayer->setColor(PieceColor::BLACK);
-    
-    // Initialize the time control
-    initializeTimeControl();
+    try {
+        startTime = QDateTime::currentDateTime();
+        lastMoveTime = startTime;
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame::start() - Initializing board for game " + gameId);
+        }
+        
+        // Initialize the board
+        try {
+            if (!board) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->error("ChessGame::start() - Board is null for game " + gameId);
+                }
+                throw std::runtime_error("Board is null");
+            }
+            board->initialize();
+        } catch (const std::exception& e) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessGame::start() - Board initialization failed for game " + gameId + ": " + std::string(e.what()));
+            }
+            throw std::runtime_error("Board initialization failed: " + std::string(e.what()));
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame::start() - Setting player colors for game " + gameId);
+        }
+        
+        // Set the player colors
+        if (whitePlayer) {
+            whitePlayer->setColor(PieceColor::WHITE);
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessGame::start() - Set " + whitePlayer->getUsername() + " as WHITE for game " + gameId);
+            }
+        } else {
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("ChessGame::start() - White player is null for game " + gameId);
+            }
+        }
+        
+        if (blackPlayer) {
+            blackPlayer->setColor(PieceColor::BLACK);
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessGame::start() - Set " + blackPlayer->getUsername() + " as BLACK for game " + gameId);
+            }
+        } else {
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("ChessGame::start() - Black player is null for game " + gameId);
+            }
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame::start() - Initializing time control for game " + gameId);
+        }
+        
+        // Initialize the time control
+        initializeTimeControl();
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame::start() - Game " + gameId + " started successfully");
+        }
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessGame::start() - Fatal error starting game " + gameId + ": " + std::string(e.what()));
+        }
+        throw std::runtime_error("Error starting game: " + std::string(e.what()));
+    } catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessGame::start() - Unknown fatal error starting game " + gameId);
+        }
+        throw std::runtime_error("Unknown error starting game");
+    }
 }
 
-void ChessGame::end(GameResult result) {
+void ChessGame::end(GameResult result)
+{
     this->result = result;
     endTime = QDateTime::currentDateTime();
     
@@ -1401,125 +1739,300 @@ bool ChessGame::isOver() const {
     return result != GameResult::IN_PROGRESS;
 }
 
-QJsonObject ChessGame::getGameStateJson() const {
+QJsonObject ChessGame::getGameStateJson() const
+{
     QJsonObject json;
+    MPChessServer* server = MPChessServer::getInstance();
     
-    json["gameId"] = QString::fromStdString(gameId);
-    json["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
-    json["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
-    json["currentTurn"] = (board->getCurrentTurn() == PieceColor::WHITE) ? "white" : "black";
-    json["result"] = [this]() -> QString {
-        switch (result) {
-            case GameResult::WHITE_WIN: return "white_win";
-            case GameResult::BLACK_WIN: return "black_win";
-            case GameResult::DRAW: return "draw";
-            default: return "in_progress";
+    try {
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Generating game state for game " + gameId);
         }
-    }();
-    
-    json["whiteRemainingTime"] = static_cast<qint64>(whitePlayer->getRemainingTime());
-    json["blackRemainingTime"] = static_cast<qint64>(blackPlayer->getRemainingTime());
-    
-    json["isCheck"] = board->isInCheck(board->getCurrentTurn());
-    json["isCheckmate"] = board->isInCheckmate(board->getCurrentTurn());
-    json["isStalemate"] = board->isInStalemate(board->getCurrentTurn());
-    
-    json["drawOffered"] = drawOffered;
-    if (drawOffered) {
-        json["drawOfferingPlayer"] = QString::fromStdString(drawOfferingPlayer->getUsername());
-    }
-    
-    // Board state
-    QJsonArray boardArray;
-    for (int r = 0; r < 8; ++r) {
-        QJsonArray rowArray;
-        for (int c = 0; c < 8; ++c) {
-            QJsonObject pieceObj;
-            const ChessPiece* piece = board->getPiece(Position(r, c));
-            if (piece) {
-                pieceObj["type"] = [piece]() -> QString {
-                    switch (piece->getType()) {
-                        case PieceType::PAWN: return "pawn";
-                        case PieceType::KNIGHT: return "knight";
-                        case PieceType::BISHOP: return "bishop";
-                        case PieceType::ROOK: return "rook";
-                        case PieceType::QUEEN: return "queen";
-                        case PieceType::KING: return "king";
-                        default: return "empty";
+        
+        json["gameId"] = QString::fromStdString(gameId);
+        
+        if (whitePlayer) {
+            json["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
+            json["whiteRemainingTime"] = static_cast<qint64>(whitePlayer->getRemainingTime());
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("getGameStateJson() - White player: " + whitePlayer->getUsername() + 
+                                          ", time: " + std::to_string(whitePlayer->getRemainingTime()));
+            }
+        } else {
+            json["whitePlayer"] = "Unknown";
+            json["whiteRemainingTime"] = 0;
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("getGameStateJson() - White player is null for game " + gameId);
+            }
+        }
+        
+        if (blackPlayer) {
+            json["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
+            json["blackRemainingTime"] = static_cast<qint64>(blackPlayer->getRemainingTime());
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("getGameStateJson() - Black player: " + blackPlayer->getUsername() + 
+                                          ", time: " + std::to_string(blackPlayer->getRemainingTime()));
+            }
+        } else {
+            json["blackPlayer"] = "Unknown";
+            json["blackRemainingTime"] = 0;
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("getGameStateJson() - Black player is null for game " + gameId);
+            }
+        }
+        
+        // null check for board before accessing its methods
+        if (board) {
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("getGameStateJson() - Processing board state for game " + gameId);
+            }
+
+            json["currentTurn"] = (board->getCurrentTurn() == PieceColor::WHITE) ? "white" : "black";
+            
+            // Avoid deep recursion by using a simplified check for game state
+            // Instead of calling potentially recursive methods, just set basic state
+            // The client can request detailed analysis separately if needed
+            json["isCheck"] = false;
+            json["isCheckmate"] = false;
+            json["isStalemate"] = false;
+            
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("getGameStateJson() - Game " + gameId + " turn: " + 
+                                          (board->getCurrentTurn() == PieceColor::WHITE ? "white" : "black"));
+            }
+        } else {
+            // Set default values if board is null
+            json["currentTurn"] = "white";
+            json["isCheck"] = false;
+            json["isCheckmate"] = false;
+            json["isStalemate"] = false;
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("getGameStateJson() - Board is null, so added default values, for game " + gameId);
+            }
+        }
+        
+        json["result"] = [this]() -> QString {
+            switch (result) {
+                case GameResult::WHITE_WIN: return "white_win";
+                case GameResult::BLACK_WIN: return "black_win";
+                case GameResult::DRAW: return "draw";
+                default: return "in_progress";
+            }
+        }();
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Game " + gameId + " result: " + json["result"].toString().toStdString());
+        }
+        
+        json["drawOffered"] = drawOffered;
+        if (drawOffered && drawOfferingPlayer) {
+            json["drawOfferingPlayer"] = QString::fromStdString(drawOfferingPlayer->getUsername());
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("getGameStateJson() - Draw offered by " + drawOfferingPlayer->getUsername() + " in game " + gameId);
+            }
+        }
+        
+        // Board state - now with piece type information
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Building board array for game " + gameId);
+        }
+        
+        QJsonArray boardArray;
+        if (board) {
+            for (int r = 0; r < 8; ++r) {
+                QJsonArray rowArray;
+                for (int c = 0; c < 8; ++c) {
+                    QJsonObject pieceObj;
+                    Position pos(r, c);
+                    const ChessPiece* piece = nullptr;
+                    
+                    try {
+                        piece = board->getPiece(pos);
+                    } catch (const std::exception& e) {
+                        if (server && server->getLogger()) {
+                            server->getLogger()->error("getGameStateJson() - Exception getting piece at " + 
+                                                     std::to_string(r) + "," + std::to_string(c) + ": " + 
+                                                     std::string(e.what()));
+                        }
+                        piece = nullptr;
                     }
-                }();
-                
-                pieceObj["color"] = (piece->getColor() == PieceColor::WHITE) ? "white" : "black";
-            } else {
-                pieceObj["type"] = "empty";
-                pieceObj["color"] = "none";
-            }
-            rowArray.append(pieceObj);
-        }
-        boardArray.append(rowArray);
-    }
-    json["board"] = boardArray;
-    
-    // Move history
-    QJsonArray moveHistoryArray;
-    const std::vector<ChessMove>& moveHistory = board->getMoveHistory();
-    for (const ChessMove& move : moveHistory) {
-        QJsonObject moveObj;
-        moveObj["from"] = QString::fromStdString(move.getFrom().toAlgebraic());
-        moveObj["to"] = QString::fromStdString(move.getTo().toAlgebraic());
-        if (move.getPromotionType() != PieceType::EMPTY) {
-            moveObj["promotion"] = [move]() -> QString {
-                switch (move.getPromotionType()) {
-                    case PieceType::QUEEN: return "queen";
-                    case PieceType::ROOK: return "rook";
-                    case PieceType::BISHOP: return "bishop";
-                    case PieceType::KNIGHT: return "knight";
-                    default: return "";
+                    
+                    if (piece) {
+                        // try-catch block around piece property access
+                        try {
+                            PieceType type = piece->getType();
+                            switch (type) {
+                                case PieceType::PAWN:   pieceObj["type"] = "pawn"; break;
+                                case PieceType::KNIGHT: pieceObj["type"] = "knight"; break;
+                                case PieceType::BISHOP: pieceObj["type"] = "bishop"; break;
+                                case PieceType::ROOK:   pieceObj["type"] = "rook"; break;
+                                case PieceType::QUEEN:  pieceObj["type"] = "queen"; break;
+                                case PieceType::KING:   pieceObj["type"] = "king"; break;
+                                default:                pieceObj["type"] = "unknown"; break;
+                            }
+                            
+                            // Get color directly from the base class
+                            pieceObj["color"] = (piece->getColor() == PieceColor::WHITE) ? "white" : "black";
+                        } catch (const std::exception& e) {
+                            if (server && server->getLogger()) {
+                                server->getLogger()->error("getGameStateJson() - Exception processing piece at " + 
+                                                         std::to_string(r) + "," + std::to_string(c) + ": " + std::string(e.what()));
+                            }
+                            pieceObj["type"] = "error";
+                            pieceObj["color"] = "none";
+                        }
+                    } else {
+                        pieceObj["type"] = "empty";
+                        pieceObj["color"] = "none";
+                    }
+                    
+                    rowArray.append(pieceObj);
                 }
-            }();
+                boardArray.append(rowArray);
+            }
         }
-        moveHistoryArray.append(moveObj);
-    }
-    json["moveHistory"] = moveHistoryArray;
-    
-    // Captured pieces
-    QJsonArray whiteCapturedArray;
-    for (PieceType type : board->getCapturedPieces(PieceColor::WHITE)) {
-        whiteCapturedArray.append([type]() -> QString {
-            switch (type) {
-                case PieceType::PAWN: return "pawn";
-                case PieceType::KNIGHT: return "knight";
-                case PieceType::BISHOP: return "bishop";
-                case PieceType::ROOK: return "rook";
-                case PieceType::QUEEN: return "queen";
-                default: return "";
+        json["board"] = boardArray;
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Board array built successfully for game " + gameId);
+        }
+        
+        // Add move history
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Building move history for game " + gameId);
+        }
+        
+        QJsonArray moveHistoryArray;
+        if (board) {
+            // try-catch block around move history access
+            try {
+                const std::vector<ChessMove>& moveHistory = board->getMoveHistory();
+                for (const ChessMove& move : moveHistory) {
+                    QJsonObject moveObj;
+                    moveObj["from"] = QString::fromStdString(move.getFrom().toAlgebraic());
+                    moveObj["to"] = QString::fromStdString(move.getTo().toAlgebraic());
+                    if (move.getPromotionType() != PieceType::EMPTY) {
+                        moveObj["promotion"] = [move]() -> QString {
+                            switch (move.getPromotionType()) {
+                                case PieceType::QUEEN: return "queen";
+                                case PieceType::ROOK: return "rook";
+                                case PieceType::BISHOP: return "bishop";
+                                case PieceType::KNIGHT: return "knight";
+                                default: return "";
+                            }
+                        }();
+                    }
+                    moveHistoryArray.append(moveObj);
+                }
+            } catch (const std::exception& e) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->error("getGameStateJson() - Exception processing move history: " + std::string(e.what()));
+                }
             }
-        }());
-    }
-    json["whiteCaptured"] = whiteCapturedArray;
-    
-    QJsonArray blackCapturedArray;
-    for (PieceType type : board->getCapturedPieces(PieceColor::BLACK)) {
-        blackCapturedArray.append([type]() -> QString {
-            switch (type) {
-                case PieceType::PAWN: return "pawn";
-                case PieceType::KNIGHT: return "knight";
-                case PieceType::BISHOP: return "bishop";
-                case PieceType::ROOK: return "rook";
-                case PieceType::QUEEN: return "queen";
-                default: return "";
+        }
+        json["moveHistory"] = moveHistoryArray;
+        
+        // Add captured pieces
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Building captured pieces arrays for game " + gameId);
+        }
+        
+        QJsonArray whiteCapturedArray;
+        QJsonArray blackCapturedArray;
+        
+        if (board) {
+            // try-catch blocks around captured pieces access
+            try {
+                for (PieceType type : board->getCapturedPieces(PieceColor::WHITE)) {
+                    whiteCapturedArray.append([type]() -> QString {
+                        switch (type) {
+                            case PieceType::PAWN: return "pawn";
+                            case PieceType::KNIGHT: return "knight";
+                            case PieceType::BISHOP: return "bishop";
+                            case PieceType::ROOK: return "rook";
+                            case PieceType::QUEEN: return "queen";
+                            default: return "";
+                        }
+                    }());
+                }
+            } catch (const std::exception& e) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->error("getGameStateJson() - Exception processing white captured pieces: " + std::string(e.what()));
+                }
             }
-        }());
+            
+            try {
+                for (PieceType type : board->getCapturedPieces(PieceColor::BLACK)) {
+                    blackCapturedArray.append([type]() -> QString {
+                        switch (type) {
+                            case PieceType::PAWN: return "pawn";
+                            case PieceType::KNIGHT: return "knight";
+                            case PieceType::BISHOP: return "bishop";
+                            case PieceType::ROOK: return "rook";
+                            case PieceType::QUEEN: return "queen";
+                            default: return "";
+                        }
+                    }());
+                }
+            } catch (const std::exception& e) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->error("getGameStateJson() - Exception processing black captured pieces: " + std::string(e.what()));
+                }
+            }
+        }
+        
+        json["whiteCaptured"] = whiteCapturedArray;
+        json["blackCaptured"] = blackCapturedArray;
+        
+        // ASCII board representation
+        if (board) {
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("getGameStateJson() - Getting ASCII board representation for game " + gameId);
+            }
+            // try-catch block around ASCII board generation
+            try {
+                json["asciiBoard"] = QString::fromStdString(board->getAsciiBoard());
+            } catch (const std::exception& e) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->error("getGameStateJson() - Exception generating ASCII board: " + std::string(e.what()));
+                }
+                json["asciiBoard"] = "";
+            }
+        } else {
+            json["asciiBoard"] = "";
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("getGameStateJson() - Successfully generated game state for game " + gameId);
+        }
+    } catch (const std::exception& e) {
+        // Comprehensive error handling for the entire function
+        // If there's an error, return a minimal valid JSON with an error message
+        if (server && server->getLogger()) {
+            server->getLogger()->error("getGameStateJson() - Exception generating game state for game " + gameId + ": " + std::string(e.what()));
+        }
+        
+        json = QJsonObject();
+        json["error"] = "Error generating game state: " + QString::fromStdString(std::string(e.what()));
+        json["gameId"] = QString::fromStdString(gameId);
+        json["result"] = "in_progress";
+    } catch (...) {
+        // Handling for unknown exceptions
+        if (server && server->getLogger()) {
+            server->getLogger()->error("getGameStateJson() - Unknown exception generating game state for game " + gameId);
+        }
+        
+        json = QJsonObject();
+        json["error"] = "Unknown error generating game state";
+        json["gameId"] = QString::fromStdString(gameId);
+        json["result"] = "in_progress";
     }
-    json["blackCaptured"] = blackCapturedArray;
-    
-    // ASCII board representation
-    json["asciiBoard"] = QString::fromStdString(board->getAsciiBoard());
     
     return json;
 }
 
-QJsonObject ChessGame::getGameHistoryJson() const {
+QJsonObject ChessGame::getGameHistoryJson() const
+{
     QJsonObject json = getGameStateJson();
     
     // Add additional history information
@@ -1550,12 +2063,33 @@ std::string ChessGame::getBoardAscii() const {
     return board->getAsciiBoard();
 }
 
-std::vector<std::pair<ChessMove, double>> ChessGame::getMoveRecommendations(ChessPlayer* player) const {
-    // Create an AI to generate recommendations
-    ChessAI ai(8);  // Use a high skill level for recommendations
+std::vector<std::pair<ChessMove, double>> ChessGame::getMoveRecommendations(ChessPlayer* player) const
+{
+    if (!player || !board) {
+        return {};
+    }
     
-    PieceColor color = player->getColor();
-    return ai.getMoveRecommendations(*board, color, 5);  // Get top 5 recommendations
+    try {
+        // Create an AI to generate recommendations
+        ChessAI ai(8);  // Use a high skill level for recommendations
+        
+        PieceColor color = player->getColor();
+        return ai.getMoveRecommendations(*board, color, 5);  // Get top 5 recommendations
+    } catch (const std::exception& e) {
+        // Log the error but return an empty list
+        // We don't want to crash just because recommendations failed
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("getMoveRecommendations() - Exception: " + std::string(e.what()));
+        }
+        return {};
+    } catch (...) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("getMoveRecommendations() - Unknown exception");
+        }
+        return {};
+    }
 }
 
 bool ChessGame::handleDrawOffer(ChessPlayer* player) {
@@ -1788,7 +2322,7 @@ ChessAI::ChessAI(int skillLevel) : skillLevel(std::min(std::max(skillLevel, 1), 
 ChessMove ChessAI::getBestMove(const ChessBoard& board, PieceColor color)
 {
     // If Stockfish is available and skill level is high enough, use it
-    MPChessServer* server = qobject_cast<MPChessServer*>(MPChessServer::getInstance()->parent());
+    MPChessServer* server = MPChessServer::getInstance();
     if (server && server->stockfishConnector && server->stockfishConnector->isInitialized() && skillLevel >= 8) {
         server->stockfishConnector->setPosition(board);
         server->stockfishConnector->setSkillLevel(skillLevel * 2);  // Convert our 1-10 scale to Stockfish's 0-20
@@ -1849,40 +2383,64 @@ int ChessAI::getSkillLevel() const {
     return skillLevel;
 }
 
-double ChessAI::evaluatePosition(const ChessBoard& board, PieceColor color) const {
+double ChessAI::evaluatePosition(const ChessBoard& board, PieceColor color) const
+{
     double score = 0.0;
     
-    // Count material
-    for (int r = 0; r < 8; ++r) {
-        for (int c = 0; c < 8; ++c) {
-            Position pos(r, c);
-            const ChessPiece* piece = board.getPiece(pos);
-            if (piece) {
-                score += evaluatePiece(piece, pos, board);
+    try {
+        // Count material
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                Position pos(r, c);
+                const ChessPiece* piece = board.getPiece(pos);
+                if (piece) {
+                    try {
+                        score += evaluatePiece(piece, pos, board);
+                    } catch (const std::exception& e) {
+                        // Log the error but continue
+                        MPChessServer* server = MPChessServer::getInstance();
+                        if (server && server->getLogger()) {
+                            server->getLogger()->error("evaluatePosition() - Exception evaluating piece: " + std::string(e.what()));
+                        }
+                    }
+                }
             }
         }
+        
+        // Adjust score for check/checkmate
+        if (board.isInCheckmate(PieceColor::WHITE)) {
+            return -10000.0;  // Black wins
+        } else if (board.isInCheckmate(PieceColor::BLACK)) {
+            return 10000.0;   // White wins
+        } else if (board.isInCheck(PieceColor::WHITE)) {
+            score -= 50.0;    // White is in check
+        } else if (board.isInCheck(PieceColor::BLACK)) {
+            score += 50.0;    // Black is in check
+        }
+        
+        // Adjust for stalemate
+        if (board.isInStalemate(PieceColor::WHITE) || board.isInStalemate(PieceColor::BLACK)) {
+            return 0.0;  // Draw
+        }
+        
+        // Mobility (number of legal moves)
+        std::vector<ChessMove> whiteMoves = board.getAllValidMoves(PieceColor::WHITE);
+        std::vector<ChessMove> blackMoves = board.getAllValidMoves(PieceColor::BLACK);
+        score += 0.1 * (whiteMoves.size() - blackMoves.size());
+    } catch (const std::exception& e) {
+        // Log the error but return a default score
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("evaluatePosition() - Exception: " + std::string(e.what()));
+        }
+        return 0.0;
+    } catch (...) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("evaluatePosition() - Unknown exception");
+        }
+        return 0.0;
     }
-    
-    // Adjust score for check/checkmate
-    if (board.isInCheckmate(PieceColor::WHITE)) {
-        return -10000.0;  // Black wins
-    } else if (board.isInCheckmate(PieceColor::BLACK)) {
-        return 10000.0;   // White wins
-    } else if (board.isInCheck(PieceColor::WHITE)) {
-        score -= 50.0;    // White is in check
-    } else if (board.isInCheck(PieceColor::BLACK)) {
-        score += 50.0;    // Black is in check
-    }
-    
-    // Adjust for stalemate
-    if (board.isInStalemate(PieceColor::WHITE) || board.isInStalemate(PieceColor::BLACK)) {
-        return 0.0;  // Draw
-    }
-    
-    // Mobility (number of legal moves)
-    std::vector<ChessMove> whiteMoves = board.getAllValidMoves(PieceColor::WHITE);
-    std::vector<ChessMove> blackMoves = board.getAllValidMoves(PieceColor::BLACK);
-    score += 0.1 * (whiteMoves.size() - blackMoves.size());
     
     // Adjust score based on the perspective
     return color == PieceColor::WHITE ? score : -score;
@@ -1981,74 +2539,120 @@ int ChessAI::getSearchDepth() const {
     }
 }
 
-double ChessAI::evaluatePiece(const ChessPiece* piece, const Position& pos, const ChessBoard& board) const {
+double ChessAI::evaluatePiece(const ChessPiece* piece, const Position& pos, const ChessBoard& board) const
+{
     if (!piece) return 0.0;
     
     double value = 0.0;
     
-    // Base piece values
-    switch (piece->getType()) {
-        case PieceType::PAWN:   value = 1.0; break;
-        case PieceType::KNIGHT: value = 3.0; break;
-        case PieceType::BISHOP: value = 3.25; break;
-        case PieceType::ROOK:   value = 5.0; break;
-        case PieceType::QUEEN:  value = 9.0; break;
-        case PieceType::KING:   value = 100.0; break;
-        case PieceType::EMPTY:  value = 0.0; break;
-        default: value = 0.0; break;
-    }
-    
-    // Adjust for position using piece-square tables
-    int row = pos.row;
-    int col = pos.col;
-    
-    // Flip the row for black pieces to use the same tables
-    if (piece->getColor() == PieceColor::BLACK) {
-        row = 7 - row;
-    }
-    
-    switch (piece->getType()) {
-        case PieceType::PAWN:
-            value += pawnTable[row][col] * 0.1;
-            break;
-        case PieceType::KNIGHT:
-            value += knightTable[row][col] * 0.1;
-            break;
-        case PieceType::BISHOP:
-            value += bishopTable[row][col] * 0.1;
-            break;
-        case PieceType::ROOK:
-            value += rookTable[row][col] * 0.1;
-            break;
-        case PieceType::QUEEN:
-            value += queenTable[row][col] * 0.1;
-            break;
-        case PieceType::KING:
-            {
-                // Use different tables for middle game and end game
-                // Simple heuristic: if both sides have queens, it's middle game
-                bool isEndGame = true;
-                for (int r = 0; r < 8; ++r) {
-                    for (int c = 0; c < 8; ++c) {
-                        const ChessPiece* p = board.getPiece(Position(r, c));
-                        if (p && p->getType() == PieceType::QUEEN) {
-                            isEndGame = false;
-                            break;
-                        }
-                    }
-                    if (!isEndGame) break;
-                }
-                
-                if (isEndGame) {
-                    value += kingEndGameTable[row][col] * 0.1;
-                } else {
-                    value += kingMiddleGameTable[row][col] * 0.1;
-                }
-                break;
+    try {
+        // Base piece values
+        PieceType type;
+        try {
+            type = piece->getType();
+        } catch (const std::exception& e) {
+            // Use RTTI to determine piece type
+            if (dynamic_cast<const Pawn*>(piece)) {
+                type = PieceType::PAWN;
+            } else if (dynamic_cast<const Knight*>(piece)) {
+                type = PieceType::KNIGHT;
+            } else if (dynamic_cast<const Bishop*>(piece)) {
+                type = PieceType::BISHOP;
+            } else if (dynamic_cast<const Rook*>(piece)) {
+                type = PieceType::ROOK;
+            } else if (dynamic_cast<const Queen*>(piece)) {
+                type = PieceType::QUEEN;
+            } else if (dynamic_cast<const King*>(piece)) {
+                type = PieceType::KING;
+            } else {
+                type = PieceType::EMPTY;
             }
-        case PieceType::EMPTY:
-            value += 0.0;
-            break;
+        }
+        
+        switch (type) {
+            case PieceType::PAWN:   value = 1.0; break;
+            case PieceType::KNIGHT: value = 3.0; break;
+            case PieceType::BISHOP: value = 3.25; break;
+            case PieceType::ROOK:   value = 5.0; break;
+            case PieceType::QUEEN:  value = 9.0; break;
+            case PieceType::KING:   value = 100.0; break;
+            case PieceType::EMPTY:  value = 0.0; break;
+            default: value = 0.0; break;
+        }
+        
+        // Adjust for position using piece-square tables
+        int row = pos.row;
+        int col = pos.col;
+        
+        // Flip the row for black pieces to use the same tables
+        PieceColor color;
+        try {
+            color = piece->getColor();
+        } catch (const std::exception& e) {
+            // Default to WHITE if we can't get the color
+            color = PieceColor::WHITE;
+        }
+        
+        if (color == PieceColor::BLACK) {
+            row = 7 - row;
+        }
+        
+        switch (type) {
+            case PieceType::PAWN:
+                value += pawnTable[row][col] * 0.1;
+                break;
+            case PieceType::KNIGHT:
+                value += knightTable[row][col] * 0.1;
+                break;
+            case PieceType::BISHOP:
+                value += bishopTable[row][col] * 0.1;
+                break;
+            case PieceType::ROOK:
+                value += rookTable[row][col] * 0.1;
+                break;
+            case PieceType::QUEEN:
+                value += queenTable[row][col] * 0.1;
+                break;
+            case PieceType::KING:
+                {
+                    // Use different tables for middle game and end game
+                    // Simple heuristic: if both sides have queens, it's middle game
+                    bool isEndGame = true;
+                    for (int r = 0; r < 8; ++r) {
+                        for (int c = 0; c < 8; ++c) {
+                            const ChessPiece* p = board.getPiece(Position(r, c));
+                            if (p && p->getType() == PieceType::QUEEN) {
+                                isEndGame = false;
+                                break;
+                            }
+                        }
+                        if (!isEndGame) break;
+                    }
+                    
+                    if (isEndGame) {
+                        value += kingEndGameTable[row][col] * 0.1;
+                    } else {
+                        value += kingMiddleGameTable[row][col] * 0.1;
+                    }
+                    break;
+                }
+            case PieceType::EMPTY:
+                value += 0.0;
+                break;
+        }
+    } catch (const std::exception& e) {
+        // Log the error but return a default value
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("evaluatePiece() - Exception: " + std::string(e.what()));
+        }
+        return 0.0;
+    } catch (...) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("evaluatePiece() - Unknown exception");
+        }
+        return 0.0;
     }
     
     // Adjust sign based on color
@@ -2077,37 +2681,42 @@ void ChessMatchmaker::removePlayer(ChessPlayer* player) {
     }
 }
 
-std::vector<std::pair<ChessPlayer*, ChessPlayer*>> ChessMatchmaker::matchPlayers() {
+std::vector<std::pair<ChessPlayer*, ChessPlayer*>> ChessMatchmaker::matchPlayers()
+{
     std::vector<std::pair<ChessPlayer*, ChessPlayer*>> matches;
     
     // Make a copy of the queue to avoid modifying it while iterating
     std::vector<ChessPlayer*> queue = playerQueue;
     
+    // Track players that have been matched to avoid duplicates
+    std::set<ChessPlayer*, std::less<ChessPlayer*>, std::allocator<ChessPlayer*>> matchedPlayers;
+    
     for (size_t i = 0; i < queue.size(); ++i) {
         ChessPlayer* player = queue[i];
         
+        // Skip if player is null
+        if (!player) continue;
+        
         // Skip if player has already been matched
-        if (std::find_if(matches.begin(), matches.end(), 
-                        [player](const auto& match) { 
-                            return match.first == player || match.second == player; 
-                        }) != matches.end()) {
+        if (matchedPlayers.find(player) != matchedPlayers.end()) {
             continue;
         }
         
         ChessPlayer* bestMatch = findBestMatch(player);
-        if (bestMatch) {
+        if (bestMatch && matchedPlayers.find(bestMatch) == matchedPlayers.end()) {
             matches.emplace_back(player, bestMatch);
             
-            // Remove matched players from the queue
-            removePlayer(player);
-            removePlayer(bestMatch);
+            // Mark both players as matched
+            matchedPlayers.insert(player);
+            matchedPlayers.insert(bestMatch);
         }
     }
     
     return matches;
 }
 
-std::vector<ChessPlayer*> ChessMatchmaker::checkTimeouts(int timeoutSeconds) {
+std::vector<ChessPlayer*> ChessMatchmaker::checkTimeouts(int timeoutSeconds)
+{
     std::vector<ChessPlayer*> timedOutPlayers;
     QDateTime now = QDateTime::currentDateTime();
     
@@ -2141,20 +2750,26 @@ void ChessMatchmaker::clearQueue() {
     queueTimes.clear();
 }
 
-ChessPlayer* ChessMatchmaker::findBestMatch(ChessPlayer* player) const {
+ChessPlayer* ChessMatchmaker::findBestMatch(ChessPlayer* player) const
+{
+    if (!player) return nullptr;
+    
     ChessPlayer* bestMatch = nullptr;
     double bestScore = std::numeric_limits<double>::infinity();
+    QDateTime now = QDateTime::currentDateTime();
     
     for (ChessPlayer* candidate : playerQueue) {
-        if (candidate == player) continue;
+        if (!candidate || candidate == player) continue;
         
         // Calculate rating difference score
         double score = getRatingDifferenceScore(player->getRating(), candidate->getRating());
         
         // Consider waiting time as well
-        QDateTime now = QDateTime::currentDateTime();
-        int waitTime = queueTimes.at(candidate).secsTo(now);
-        score -= waitTime * 0.1;  // Reduce score for players waiting longer
+        auto it = queueTimes.find(candidate);
+        if (it != queueTimes.end()) {
+            int waitTime = it->second.secsTo(now);
+            score -= waitTime * 0.1;  // Reduce score for players waiting longer
+        }
         
         if (score < bestScore) {
             bestScore = score;
@@ -2228,7 +2843,7 @@ QJsonObject ChessAnalysisEngine::analyzeGame(const ChessGame& game) {
     QJsonObject analysis;
 
     // If Stockfish is available, use it for analysis
-    MPChessServer* server = qobject_cast<MPChessServer*>(MPChessServer::getInstance()->parent());
+    MPChessServer* server = MPChessServer::getInstance();
     if (server && server->stockfishConnector && server->stockfishConnector->isInitialized()) {
         return server->stockfishConnector->analyzeGame(game);
     }
@@ -2307,7 +2922,7 @@ QJsonObject ChessAnalysisEngine::analyzeMove(const ChessBoard& boardBefore, cons
     QJsonObject analysis;
 
     // If Stockfish is available, use it for analysis
-    MPChessServer* server = qobject_cast<MPChessServer*>(MPChessServer::getInstance()->parent());
+    MPChessServer* server = MPChessServer::getInstance();
     if (server && server->stockfishConnector && server->stockfishConnector->isInitialized()) {
         // Create a copy of the board and make the move
         auto boardAfter = boardBefore.clone();
@@ -2390,7 +3005,7 @@ std::vector<std::pair<ChessMove, double>> ChessAnalysisEngine::getMoveRecommenda
     const ChessBoard& board, PieceColor color, int maxRecommendations) {
 
     // If Stockfish is available, use it for recommendations
-    MPChessServer* server = qobject_cast<MPChessServer*>(MPChessServer::getInstance()->parent());
+    MPChessServer* server = MPChessServer::getInstance();
     if (server && server->stockfishConnector && server->stockfishConnector->isInitialized()) {
         server->stockfishConnector->setPosition(board);
         return server->stockfishConnector->getMoveRecommendations(maxRecommendations);
@@ -2979,23 +3594,26 @@ ChessMove ChessSerializer::deserializeMove(const QJsonObject& json) {
 }
 
 // Implementation of ChessLogger class
-ChessLogger::ChessLogger(const std::string& logFilePath) : logLevel(0) {
+ChessLogger::ChessLogger(const std::string& logFilePath) : logLevel(0)
+{
     logFile.open(logFilePath, std::ios::out | std::ios::app);
     if (!logFile.is_open()) {
         std::cerr << "Failed to open log file: " << logFilePath << std::endl;
     }
     
-    log("ChessLogger initialized");
+    log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Multiplayer Chess Server Logger initialized <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
 }
 
-ChessLogger::~ChessLogger() {
+ChessLogger::~ChessLogger()
+{
     if (logFile.is_open()) {
-        log("ChessLogger shutting down");
+        log("Chess Server Logger shutting down");
         logFile.close();
     }
 }
 
-void ChessLogger::log(const std::string& message, bool console) {
+void ChessLogger::log(const std::string& message, bool console)
+{
     std::lock_guard<std::mutex> lock(logMutex);
     
     std::string timestamp = getCurrentTimestamp();
@@ -3010,7 +3628,8 @@ void ChessLogger::log(const std::string& message, bool console) {
     }
 }
 
-void ChessLogger::error(const std::string& message, bool console) {
+void ChessLogger::error(const std::string& message, bool console)
+{
     std::lock_guard<std::mutex> lock(logMutex);
     
     std::string timestamp = getCurrentTimestamp();
@@ -3025,7 +3644,8 @@ void ChessLogger::error(const std::string& message, bool console) {
     }
 }
 
-void ChessLogger::warning(const std::string& message, bool console) {
+void ChessLogger::warning(const std::string& message, bool console)
+{
     std::lock_guard<std::mutex> lock(logMutex);
     
     std::string timestamp = getCurrentTimestamp();
@@ -3040,7 +3660,8 @@ void ChessLogger::warning(const std::string& message, bool console) {
     }
 }
 
-void ChessLogger::debug(const std::string& message, bool console) {
+void ChessLogger::debug(const std::string& message, bool console)
+{
     if (logLevel < 1) return;  // Skip debug messages if log level is too low
     
     std::lock_guard<std::mutex> lock(logMutex);
@@ -3057,7 +3678,8 @@ void ChessLogger::debug(const std::string& message, bool console) {
     }
 }
 
-void ChessLogger::logGameState(const ChessGame& game) {
+void ChessLogger::logGameState(const ChessGame& game)
+{
     if (logLevel < 2) return;  // Skip detailed game state if log level is too low
     
     std::lock_guard<std::mutex> lock(logMutex);
@@ -3080,7 +3702,8 @@ void ChessLogger::logGameState(const ChessGame& game) {
     }
 }
 
-void ChessLogger::logPlayerAction(const ChessPlayer& player, const std::string& action) {
+void ChessLogger::logPlayerAction(const ChessPlayer& player, const std::string& action)
+{
     std::lock_guard<std::mutex> lock(logMutex);
     
     std::string timestamp = getCurrentTimestamp();
@@ -3094,7 +3717,8 @@ void ChessLogger::logPlayerAction(const ChessPlayer& player, const std::string& 
     }
 }
 
-void ChessLogger::logServerEvent(const std::string& event) {
+void ChessLogger::logServerEvent(const std::string& event)
+{
     std::lock_guard<std::mutex> lock(logMutex);
     
     std::string timestamp = getCurrentTimestamp();
@@ -3119,15 +3743,18 @@ void ChessLogger::logNetworkMessage(const std::string& direction, const QJsonObj
     }
 }
 
-void ChessLogger::setLogLevel(int level) {
+void ChessLogger::setLogLevel(int level)
+{
     logLevel = level;
 }
 
-int ChessLogger::getLogLevel() const {
+int ChessLogger::getLogLevel() const
+{
     return logLevel;
 }
 
-void ChessLogger::flush() {
+void ChessLogger::flush()
+{
     std::lock_guard<std::mutex> lock(logMutex);
     
     if (logFile.is_open()) {
@@ -3135,7 +3762,8 @@ void ChessLogger::flush() {
     }
 }
 
-std::string ChessLogger::getCurrentTimestamp() const {
+std::string ChessLogger::getCurrentTimestamp() const
+{
     auto now = std::chrono::system_clock::now();
     auto now_c = std::chrono::system_clock::to_time_t(now);
     auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
@@ -3148,7 +3776,8 @@ std::string ChessLogger::getCurrentTimestamp() const {
 }
 
 // Implementation of ChessAuthenticator class
-ChessAuthenticator::ChessAuthenticator(const std::string& userDbPath) : userDbPath(userDbPath) {
+ChessAuthenticator::ChessAuthenticator(const std::string& userDbPath) : userDbPath(userDbPath)
+{
     // Create the directory if it doesn't exist
     QDir dir(QString::fromStdString(userDbPath));
     if (!dir.exists()) {
@@ -3158,7 +3787,8 @@ ChessAuthenticator::ChessAuthenticator(const std::string& userDbPath) : userDbPa
     loadPasswordDb();
 }
 
-ChessAuthenticator::~ChessAuthenticator() {
+ChessAuthenticator::~ChessAuthenticator()
+{
     savePasswordDb();
 }
 
@@ -3350,17 +3980,17 @@ MPChessServer* MPChessServer::mpChessServerInstance = nullptr;
 
 // Implementation of MPChessServer class
 MPChessServer::MPChessServer(QObject* parent, const std::string& stockfishPath) : QObject(parent), server(nullptr),
-    totalGamesPlayed(0), totalPlayersRegistered(0), peakConcurrentPlayers(0), totalMovesPlayed(0) {
-    
+    totalGamesPlayed(0), totalPlayersRegistered(0), peakConcurrentPlayers(0), totalMovesPlayed(0)
+{    
     // Initialize directories
     initializeServerDirectories();
 
-    // get MPChessServer instance 
+    // Set the singleton instance
     mpChessServerInstance = this;
     
     // Initialize logger
     logger = std::make_unique<ChessLogger>(getLogsPath() + "/server.log");
-    logger->setLogLevel(2);  // Set log level (0: minimal, 3: verbose)
+    logger->setLogLevel(3);  // Increase log level for more detailed logging
     
     // Initialize authenticator
     authenticator = std::make_unique<ChessAuthenticator>(getPlayerDataPath());
@@ -3391,7 +4021,7 @@ MPChessServer::MPChessServer(QObject* parent, const std::string& stockfishPath) 
         }
     }
     
-// Initialize timers
+    // Initialize timers
     matchmakingTimer = new QTimer(this);
     connect(matchmakingTimer, &QTimer::timeout, this, &MPChessServer::handleMatchmakingTimer);
     
@@ -3407,15 +4037,19 @@ MPChessServer::MPChessServer(QObject* parent, const std::string& stockfishPath) 
     logger->log("MPChessServer initialized");
 }
 
-MPChessServer::~MPChessServer() {
+MPChessServer::~MPChessServer()
+{
+    logger->log("MPChessServer shutting down");
+    
     stop();
     
     delete matchmakingTimer;
     delete gameTimer;
     delete statusTimer;
     delete leaderboardTimer;
-
-    if(mpChessServerInstance == this) {
+    
+    // Clear the singleton instance if this is the current instance
+    if (mpChessServerInstance == this) {
         mpChessServerInstance = nullptr;
     }
     
@@ -3484,6 +4118,14 @@ void MPChessServer::stop() {
     server = nullptr;
     
     logger->log("Server stopped", true);
+}
+
+void MPChessServer::setLogLevel(int level)
+{
+    if (logger) {
+        logger->setLogLevel(level);
+        logger->log("Log level set to " + std::to_string(level), true);
+    }
 }
 
 bool MPChessServer::isRunning() const {
@@ -3585,55 +4227,141 @@ void MPChessServer::handleClientData() {
     processClientMessage(socket, message);
 }
 
-void MPChessServer::handleMatchmakingTimer() {
-    // Check for timed out players and match them with bots
-    std::vector<ChessPlayer*> timedOutPlayers = matchmaker->checkTimeouts();
-    for (ChessPlayer* player : timedOutPlayers) {
-        logger->log("Player timed out in matchmaking: " + player->getUsername());
-        
-        // Create a bot player
-        ChessPlayer* botPlayer = createBotPlayer(player->getRating() / 200);  // Scale skill level based on rating
-        
-        // Create a game between the player and the bot
-        createGame(player, botPlayer, TimeControlType::RAPID);
-        
-        // Send matchmaking status to the player
-        QJsonObject message;
-        message["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
-        message["status"] = "matched_with_bot";
-        message["opponent"] = QString::fromStdString(botPlayer->getUsername());
-        
-        sendMessage(player->getSocket(), message);
-    }
+void MPChessServer::handleMatchmakingTimer()
+{
+    logger->debug("Matchmaking timer triggered - checking for matches and timeouts");
     
-    // Try to match players
-    std::vector<std::pair<ChessPlayer*, ChessPlayer*>> matches = matchmaker->matchPlayers();
-    for (const auto& match : matches) {
-        ChessPlayer* player1 = match.first;
-        ChessPlayer* player2 = match.second;
+    try {
+        // Check for timed out players and match them with bots
+        std::vector<ChessPlayer*> timedOutPlayers = matchmaker->checkTimeouts(60); // 60 seconds timeout
+        for (ChessPlayer* player : timedOutPlayers) {
+            if (!player) {
+                logger->error("Null player in timed out players list");
+                continue;
+            }
+            
+            logger->log("Player timed out in matchmaking: " + player->getUsername());
+            
+            try {
+                // Create a bot player
+                ChessPlayer* botPlayer = createBotPlayer(player->getRating() / 200);  // Scale skill level based on rating
+                
+                if (!botPlayer) {
+                    logger->error("Failed to create bot player for timed out player: " + player->getUsername());
+                    continue;
+                }
+                
+                // Create a game between the player and the bot
+                try {
+                    createGame(player, botPlayer, TimeControlType::RAPID);
+                    
+                    // Send matchmaking status to the player
+                    QJsonObject message;
+                    message["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
+                    message["status"] = "matched_with_bot";
+                    message["opponent"] = QString::fromStdString(botPlayer->getUsername());
+                    
+                    if (player->getSocket()) {
+                        sendMessage(player->getSocket(), message);
+                    } else {
+                        logger->warning("Player has no socket: " + player->getUsername());
+                    }
+                } catch (const std::exception& e) {
+                    logger->error("Failed to create game with bot: " + std::string(e.what()));
+                }
+            } catch (const std::exception& e) {
+                logger->error("Exception in bot matching: " + std::string(e.what()));
+            } catch (...) {
+                logger->error("Unknown exception in bot matching");
+            }
+        }
         
-        logger->log("Matched players: " + player1->getUsername() + " vs " + player2->getUsername());
+        // Try to match players
+        std::vector<std::pair<ChessPlayer*, ChessPlayer*>> matches;
+        try {
+            matches = matchmaker->matchPlayers();
+            logger->debug("Matchmaker found " + std::to_string(matches.size()) + " potential matches");
+        } catch (const std::exception& e) {
+            logger->error("Exception in matchPlayers: " + std::string(e.what()));
+            return;
+        }
         
-        // Create a game between the players
-        createGame(player1, player2, TimeControlType::RAPID);
-        
-        // Send matchmaking status to both players
-        QJsonObject message1;
-        message1["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
-        message1["status"] = "matched";
-        message1["opponent"] = QString::fromStdString(player2->getUsername());
-        
-        QJsonObject message2;
-        message2["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
-        message2["status"] = "matched";
-        message2["opponent"] = QString::fromStdString(player1->getUsername());
-        
-        sendMessage(player1->getSocket(), message1);
-        sendMessage(player2->getSocket(), message2);
+        for (const auto& match : matches) {
+            ChessPlayer* player1 = match.first;
+            ChessPlayer* player2 = match.second;
+            
+            if (!player1 || !player2) {
+                logger->error("Null player in match");
+                continue;
+            }
+            
+            logger->log("Matched players: " + player1->getUsername() + " vs " + player2->getUsername());
+            
+            try {
+                // Create a game between the players
+                std::string gameId = createGame(player1, player2, TimeControlType::RAPID);
+                logger->debug("Created game with ID: " + gameId);
+                
+                // Send matchmaking status to both players
+                QJsonObject message1;
+                message1["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
+                message1["status"] = "matched";
+                message1["opponent"] = QString::fromStdString(player2->getUsername());
+                message1["gameId"] = QString::fromStdString(gameId);
+                
+                QJsonObject message2;
+                message2["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
+                message2["status"] = "matched";
+                message2["opponent"] = QString::fromStdString(player1->getUsername());
+                message2["gameId"] = QString::fromStdString(gameId);
+                
+                if (player1->getSocket()) {
+                    sendMessage(player1->getSocket(), message1);
+                } else {
+                    logger->warning("Player1 has no socket: " + player1->getUsername());
+                }
+                
+                if (player2->getSocket()) {
+                    sendMessage(player2->getSocket(), message2);
+                } else {
+                    logger->warning("Player2 has no socket: " + player2->getUsername());
+                }
+            } catch (const std::exception& e) {
+                logger->error("Exception in creating game: " + std::string(e.what()));
+                
+                // Remove players from matchmaking to prevent repeated failures
+                matchmaker->removePlayer(player1);
+                matchmaker->removePlayer(player2);
+                
+                // Notify players of the failure
+                QJsonObject errorMsg;
+                errorMsg["type"] = static_cast<int>(MessageType::ERROR);
+                errorMsg["message"] = "Failed to create game. Please try matchmaking again.";
+                
+                if (player1->getSocket()) {
+                    sendMessage(player1->getSocket(), errorMsg);
+                }
+                
+                if (player2->getSocket()) {
+                    sendMessage(player2->getSocket(), errorMsg);
+                }
+            } catch (...) {
+                logger->error("Unknown exception in creating game");
+                
+                // Remove players from matchmaking
+                matchmaker->removePlayer(player1);
+                matchmaker->removePlayer(player2);
+            }
+        }
+    } catch (const std::exception& e) {
+        logger->error("Exception in handleMatchmakingTimer: " + std::string(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in handleMatchmakingTimer");
     }
 }
 
-void MPChessServer::handleGameTimerUpdate() {
+void MPChessServer::handleGameTimerUpdate()
+{
     // Update timers for all active games
     for (auto it = activeGames.begin(); it != activeGames.end(); ++it) {
         ChessGame* game = it->second.get();
@@ -3792,96 +4520,167 @@ void MPChessServer::sendMessage(QTcpSocket* socket, const QJsonObject& message) 
     socket->flush();
 }
 
-std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2, TimeControlType timeControl) {
-    // Generate a unique game ID
-    std::string gameId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-    
-    // Randomly assign colors
-    bool player1IsWhite = QRandomGenerator::global()->bounded(2) == 0;
-    ChessPlayer* whitePlayer = player1IsWhite ? player1 : player2;
-    ChessPlayer* blackPlayer = player1IsWhite ? player2 : player1;
-    
-    // Create the game
-    auto game = std::make_unique<ChessGame>(whitePlayer, blackPlayer, gameId, timeControl);
-    
-    // Start the game
-    game->start();
-    
-    // Store the game
-    activeGames[gameId] = std::move(game);
-    playerToGameId[whitePlayer] = gameId;
-    playerToGameId[blackPlayer] = gameId;
-    
-    // Send game start message to both players
-    QJsonObject message;
-    message["type"] = static_cast<int>(MessageType::GAME_START);
-    message["gameId"] = QString::fromStdString(gameId);
-    message["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
-    message["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
-    message["timeControl"] = [timeControl]() -> QString {
-        switch (timeControl) {
-            case TimeControlType::RAPID: return "rapid";
-            case TimeControlType::BLITZ: return "blitz";
-            case TimeControlType::BULLET: return "bullet";
-            case TimeControlType::CLASSICAL: return "classical";
-            case TimeControlType::CASUAL: return "casual";
-            default: return "rapid";
-        }
-    }();
-    
-    if (whitePlayer->getSocket()) {
-        message["yourColor"] = "white";
-        sendMessage(whitePlayer->getSocket(), message);
+std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2, TimeControlType timeControl)
+{
+    if (!player1 || !player2) {
+        logger->error("createGame() - Attempted to create game with null player(s)");
+        throw std::invalid_argument("Null player(s) provided to createGame");
     }
     
-    if (blackPlayer->getSocket()) {
-        message["yourColor"] = "black";
-        sendMessage(blackPlayer->getSocket(), message);
-    }
+    logger->debug("createGame() - Creating game between " + player1->getUsername() + " and " + player2->getUsername());
     
-    // Send initial game state
-    QJsonObject gameStateMessage;
-    gameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
-    gameStateMessage["gameState"] = activeGames[gameId]->getGameStateJson();
-    
-    if (whitePlayer->getSocket()) {
-        sendMessage(whitePlayer->getSocket(), gameStateMessage);
-    }
-    
-    if (blackPlayer->getSocket()) {
-        sendMessage(blackPlayer->getSocket(), gameStateMessage);
-    }
-    
-    // Send move recommendations to white player (first to move)
-    if (whitePlayer->getSocket()) {
-        std::vector<std::pair<ChessMove, double>> recommendations = 
-            activeGames[gameId]->getMoveRecommendations(whitePlayer);
+    try {
+        // Generate a unique game ID
+        std::string gameId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        logger->debug("createGame() - Generated game ID: " + gameId);
         
-        QJsonObject recommendationsMessage;
-        recommendationsMessage["type"] = static_cast<int>(MessageType::MOVE_RECOMMENDATIONS);
+        // Randomly assign colors
+        bool player1IsWhite = QRandomGenerator::global()->bounded(2) == 0;
+        ChessPlayer* whitePlayer = player1IsWhite ? player1 : player2;
+        ChessPlayer* blackPlayer = player1IsWhite ? player2 : player1;
         
-        QJsonArray recommendationsArray;
-        for (const auto& [move, evaluation] : recommendations) {
-            QJsonObject recObj;
-            recObj["move"] = QString::fromStdString(move.toAlgebraic());
-            recObj["evaluation"] = evaluation;
-            recObj["standardNotation"] = QString::fromStdString(
-                move.toStandardNotation(*activeGames[gameId]->getBoard()));
-            recommendationsArray.append(recObj);
+        logger->debug("createGame() - Assigned colors: " + whitePlayer->getUsername() + " (White), " + 
+                     blackPlayer->getUsername() + " (Black)");
+        
+        // Set player colors before creating the game
+        whitePlayer->setColor(PieceColor::WHITE);
+        blackPlayer->setColor(PieceColor::BLACK);
+        
+        // Create the game with try-catch
+        std::unique_ptr<ChessGame> game;
+        try {
+            logger->debug("createGame() - Constructing ChessGame object for game " + gameId);
+            game = std::make_unique<ChessGame>(whitePlayer, blackPlayer, gameId, timeControl);
+            logger->debug("createGame() - ChessGame object created successfully for game " + gameId);
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception creating ChessGame for game " + gameId + ": " + std::string(e.what()));
+            throw;
+        } catch (...) {
+            logger->error("createGame() - Unknown exception creating ChessGame for game " + gameId);
+            throw std::runtime_error("Unknown error creating game");
         }
         
-        recommendationsMessage["recommendations"] = recommendationsArray;
-        sendMessage(whitePlayer->getSocket(), recommendationsMessage);
+        // Start the game with try-catch
+        try {
+            logger->debug("createGame() - Starting game " + gameId);
+            game->start();
+            logger->debug("createGame() - Game " + gameId + " started successfully");
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception starting game " + gameId + ": " + std::string(e.what()));
+            throw;
+        } catch (...) {
+            logger->error("createGame() - Unknown exception starting game " + gameId);
+            throw std::runtime_error("Unknown error starting game");
+        }
+        
+        // Store the game
+        logger->debug("createGame() - Storing game " + gameId + " in active games map");
+        activeGames[gameId] = std::move(game);
+        playerToGameId[whitePlayer] = gameId;
+        playerToGameId[blackPlayer] = gameId;
+        
+        // Send game start message to both players
+        logger->debug("createGame() - Preparing game start messages for game " + gameId);
+        QJsonObject message;
+        message["type"] = static_cast<int>(MessageType::GAME_START);
+        message["gameId"] = QString::fromStdString(gameId);
+        message["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
+        message["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
+        message["timeControl"] = [timeControl]() -> QString {
+            switch (timeControl) {
+                case TimeControlType::RAPID: return "rapid";
+                case TimeControlType::BLITZ: return "blitz";
+                case TimeControlType::BULLET: return "bullet";
+                case TimeControlType::CLASSICAL: return "classical";
+                case TimeControlType::CASUAL: return "casual";
+                default: return "rapid";
+            }
+        }();
+        
+        if (whitePlayer->getSocket()) {
+            logger->debug("createGame() - Sending game start message to white player: " + whitePlayer->getUsername());
+            message["yourColor"] = "white";
+            sendMessage(whitePlayer->getSocket(), message);
+        } else {
+            logger->warning("createGame() - White player has no socket: " + whitePlayer->getUsername());
+        }
+        
+        if (blackPlayer->getSocket()) {
+            logger->debug("createGame() - Sending game start message to black player: " + blackPlayer->getUsername());
+            message["yourColor"] = "black";
+            sendMessage(blackPlayer->getSocket(), message);
+        } else {
+            logger->warning("createGame() - Black player has no socket: " + blackPlayer->getUsername());
+        }
+        
+        // Send initial game state
+        try {
+            logger->debug("createGame() - Preparing initial game state message for game " + gameId);
+            QJsonObject gameStateMessage;
+            gameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+            
+            logger->debug("createGame() - Getting game state JSON for game " + gameId);
+            gameStateMessage["gameState"] = activeGames[gameId]->getGameStateJson();
+            logger->debug("createGame() - Successfully got game state JSON for game " + gameId);
+            
+            if (whitePlayer->getSocket()) {
+                logger->debug("createGame() - Sending game state to white player: " + whitePlayer->getUsername());
+                sendMessage(whitePlayer->getSocket(), gameStateMessage);
+            }
+            
+            if (blackPlayer->getSocket()) {
+                logger->debug("createGame() - Sending game state to black player: " + blackPlayer->getUsername());
+                sendMessage(blackPlayer->getSocket(), gameStateMessage);
+            }
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception sending game state for game " + gameId + ": " + std::string(e.what()));
+            // Continue despite error in sending game state
+        }
+        
+        // Send move recommendations to white player (first to move)
+        if (whitePlayer->getSocket()) {
+            try {
+                logger->debug("createGame() - Generating move recommendations for white player in game " + gameId);
+                std::vector<std::pair<ChessMove, double>> recommendations = 
+                    activeGames[gameId]->getMoveRecommendations(whitePlayer);
+                
+                QJsonObject recommendationsMessage;
+                recommendationsMessage["type"] = static_cast<int>(MessageType::MOVE_RECOMMENDATIONS);
+                
+                QJsonArray recommendationsArray;
+                for (const auto& [move, evaluation] : recommendations) {
+                    QJsonObject recObj;
+                    recObj["move"] = QString::fromStdString(move.toAlgebraic());
+                    recObj["evaluation"] = evaluation;
+                    recObj["standardNotation"] = QString::fromStdString(
+                        move.toStandardNotation(*activeGames[gameId]->getBoard()));
+                    recommendationsArray.append(recObj);
+                }
+                
+                recommendationsMessage["recommendations"] = recommendationsArray;
+                logger->debug("createGame() - Sending move recommendations to white player: " + whitePlayer->getUsername());
+                sendMessage(whitePlayer->getSocket(), recommendationsMessage);
+            } catch (const std::exception& e) {
+                logger->error("createGame() - Exception generating move recommendations for game " + gameId + ": " + std::string(e.what()));
+                // Continue despite error in recommendations
+            }
+        }
+        
+        // Log the game creation
+        logger->log("Created game " + gameId + ": " + whitePlayer->getUsername() + 
+                   " (White) vs " + blackPlayer->getUsername() + " (Black)");
+        
+        // Increment total games played
+        totalGamesPlayed++;
+        
+        return gameId;
+    } catch (const std::exception& e) {
+        logger->error("createGame() - Exception in createGame: " + std::string(e.what()));
+        throw;
+    } catch (...) {
+        logger->error("createGame() - Unknown exception in createGame");
+        throw std::runtime_error("Unknown error creating game");
     }
-    
-    // Log the game creation
-    logger->log("Created game " + gameId + ": " + whitePlayer->getUsername() + 
-               " (White) vs " + blackPlayer->getUsername() + " (Black)");
-    
-    // Increment total games played
-    totalGamesPlayed++;
-    
-    return gameId;
 }
 
 void MPChessServer::endGame(const std::string& gameId, GameResult result) {
@@ -4171,14 +4970,23 @@ void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& da
     }
 }
 
-void MPChessServer::processMatchmakingRequest(QTcpSocket* socket, const QJsonObject& data) {
+void MPChessServer::processMatchmakingRequest(QTcpSocket* socket, const QJsonObject& data)
+{
+    logger->debug("Processing matchmaking request");
+    
     ChessPlayer* player = socketToPlayer.value(socket, nullptr);
     if (!player) {
         logger->error("Matchmaking request from unauthenticated socket");
+        
+        QJsonObject errorResponse;
+        errorResponse["type"] = static_cast<int>(MessageType::ERROR);
+        errorResponse["message"] = "You must be authenticated to use matchmaking";
+        sendMessage(socket, errorResponse);
         return;
     }
     
     bool join = data["join"].toBool();
+    logger->debug("Player " + player->getUsername() + (join ? " joining " : " leaving ") + "matchmaking queue");
     
     QJsonObject response;
     response["type"] = static_cast<int>(MessageType::MATCHMAKING_STATUS);
@@ -4186,28 +4994,46 @@ void MPChessServer::processMatchmakingRequest(QTcpSocket* socket, const QJsonObj
     if (join) {
         // Check if the player is already in a game
         if (playerToGameId.contains(player)) {
+            std::string gameId = playerToGameId[player];
+            logger->warning("Player " + player->getUsername() + " tried to join matchmaking while in game " + gameId);
+            
             response["status"] = "already_in_game";
             response["message"] = "You are already in a game";
+            response["gameId"] = QString::fromStdString(gameId);
             sendMessage(socket, response);
             return;
         }
         
-        // Add the player to the matchmaking queue
-        matchmaker->addPlayer(player);
-        
-        response["status"] = "queued";
-        response["message"] = "You have been added to the matchmaking queue";
-        response["queueSize"] = matchmaker->getQueueSize();
-        
-        logger->log("Player " + player->getUsername() + " joined matchmaking queue");
+        try {
+            // Add the player to the matchmaking queue
+            matchmaker->addPlayer(player);
+            
+            response["status"] = "queued";
+            response["message"] = "You have been added to the matchmaking queue";
+            response["queueSize"] = matchmaker->getQueueSize();
+            
+            logger->log("Player " + player->getUsername() + " joined matchmaking queue");
+        } catch (const std::exception& e) {
+            logger->error("Exception adding player to matchmaking: " + std::string(e.what()));
+            
+            response["status"] = "error";
+            response["message"] = "An error occurred while joining the matchmaking queue";
+        }
     } else {
-        // Remove the player from the matchmaking queue
-        matchmaker->removePlayer(player);
-        
-        response["status"] = "left";
-        response["message"] = "You have left the matchmaking queue";
-        
-        logger->log("Player " + player->getUsername() + " left matchmaking queue");
+        try {
+            // Remove the player from the matchmaking queue
+            matchmaker->removePlayer(player);
+            
+            response["status"] = "left";
+            response["message"] = "You have left the matchmaking queue";
+            
+            logger->log("Player " + player->getUsername() + " left matchmaking queue");
+        } catch (const std::exception& e) {
+            logger->error("Exception removing player from matchmaking: " + std::string(e.what()));
+            
+            response["status"] = "error";
+            response["message"] = "An error occurred while leaving the matchmaking queue";
+        }
     }
     
     sendMessage(socket, response);
@@ -5599,7 +6425,8 @@ void ChessLeaderboard::sortByWinPercentage() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Main function to control the server
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     QCoreApplication app(argc, argv);
     
     // Parse command line arguments
@@ -5627,30 +6454,56 @@ int main(int argc, char *argv[]) {
                                           "skill", "20");
     parser.addOption(stockfishSkillOption);
     
+    QCommandLineOption logLevelOption(QStringList() << "l" << "log-level",
+                                    "Log level (0-3, default: 2)",
+                                    "level", "2");
+    parser.addOption(logLevelOption);
+    
     parser.process(app);
     
     int port = parser.value(portOption).toInt();
     std::string stockfishPath = parser.value(stockfishOption).toStdString();
+    int logLevel = parser.value(logLevelOption).toInt();
     
-    // Create and start the server
-    MPChessServer server(nullptr, stockfishPath);
-    
-    // Configure Stockfish if it was initialized
-    if (server.stockfishConnector && server.stockfishConnector->isInitialized()) {
-        if (parser.isSet(stockfishDepthOption)) {
-            int depth = parser.value(stockfishDepthOption).toInt();
-            server.stockfishConnector->setDepth(depth);
+    try {
+        // Create and start the server
+        MPChessServer server(nullptr, stockfishPath);
+        
+        // Set log level
+        if (server.getLogger()) {
+            server.getLogger()->setLogLevel(logLevel);
+            server.getLogger()->log("Log level set to " + std::to_string(logLevel), true);
         }
         
-        if (parser.isSet(stockfishSkillOption)) {
-            int skill = parser.value(stockfishSkillOption).toInt();
-            server.stockfishConnector->setSkillLevel(skill);
+        // Configure Stockfish if it was initialized
+        if (server.stockfishConnector && server.stockfishConnector->isInitialized()) {
+            if (parser.isSet(stockfishDepthOption)) {
+                int depth = parser.value(stockfishDepthOption).toInt();
+                server.stockfishConnector->setDepth(depth);
+                server.getLogger()->log("Stockfish depth set to " + std::to_string(depth), true);
+            }
+            
+            if (parser.isSet(stockfishSkillOption)) {
+                int skill = parser.value(stockfishSkillOption).toInt();
+                server.stockfishConnector->setSkillLevel(skill);
+                server.getLogger()->log("Stockfish skill level set to " + std::to_string(skill), true);
+            }
         }
-    }
-    
-    if (!server.start(port)) {
+        
+        if (!server.start(port)) {
+            std::cerr << "Failed to start server on port " << port << std::endl;
+            return 1;
+        }
+        
+        std::cout << "Server started on port " << port << std::endl;
+        std::cout << "Press Ctrl+C to quit" << std::endl;
+        
+        return app.exec();
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error: " << e.what() << std::endl;
+        return 1;
+    } catch (...) {
+        std::cerr << "Unknown fatal error" << std::endl;
         return 1;
     }
-    
-    return app.exec();
 }

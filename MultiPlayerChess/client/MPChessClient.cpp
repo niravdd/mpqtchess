@@ -4382,7 +4382,7 @@ void GameManager::parseMoveHistory(const QJsonArray& moveHistoryArray) {
 // MPChessClient implementation
 MPChessClient::MPChessClient(QWidget* parent)
     : QMainWindow(parent), ui(new Ui::MPChessClient), replayMode(false), currentReplayIndex(-1),
-      connectAction(nullptr), disconnectAction(nullptr)
+      connectAction(nullptr), disconnectAction(nullptr), loginDialog(nullptr)
 {    
     // Initialize core components
     logger = new Logger(this);
@@ -4468,12 +4468,19 @@ MPChessClient::MPChessClient(QWidget* parent)
     }
 }
 
-MPChessClient::~MPChessClient() {
+MPChessClient::~MPChessClient()
+{
     // Save settings
     saveSettings();
     
     // Disconnect from server
     disconnectFromServer();
+    
+    // Clean up dialogs
+    if (loginDialog) {
+        delete loginDialog;
+        loginDialog = nullptr;
+    }
     
     delete ui;
 }
@@ -5556,6 +5563,8 @@ void MPChessClient::updateTimers(const QJsonObject& gameState) {
 void MPChessClient::showLoginDialog()
 {
     try {
+        logger->info("Starting showLoginDialog()");
+
         // Check if connected to server
         if (!networkManager) {
             logger->error("NetworkManager is null in showLoginDialog");
@@ -5568,29 +5577,38 @@ void MPChessClient::showLoginDialog()
             return;
         }
         
-        // Create login dialog if it doesn't exist
-        if (!loginDialog) {
-            logger->info("Creating new LoginDialog");
-            loginDialog = new LoginDialog(this);
-            if (!loginDialog) {
-                logger->error("Failed to create LoginDialog");
-                return;
-            }
-            
-            connect(loginDialog, &LoginDialog::loginRequested, 
-                    [this](const QString& username, const QString& password, bool isRegistering) {
-                        if (networkManager) {
-                            networkManager->authenticate(username, password, isRegistering);
-                        } else {
-                            logger->error("NetworkManager is null in login request");
-                        }
-                    });
+        // Create login dialog if it doesn't exist or recreate it to ensure a clean state
+        if (loginDialog) {
+            logger->info("Deleting existing LoginDialog");
+            delete loginDialog;
+            loginDialog = nullptr;
         }
         
+        logger->info("Creating new LoginDialog");
+        loginDialog = new LoginDialog(this);
+        if (!loginDialog) {
+            logger->error("Failed to create LoginDialog");
+            return;
+        }
+
+        // Connect signals
+        connect(loginDialog, &LoginDialog::loginRequested, 
+                [this](const QString& username, const QString& password, bool isRegistering) {
+                    if (networkManager) {
+                        networkManager->authenticate(username, password, isRegistering);
+                    } else {
+                        logger->error("NetworkManager is null in login request");
+                    }
+                });
+        
+        logger->info("LoginDialog created successfully");
+        
+        // Show the dialog modally
         logger->info("Showing login dialog");
-        // Show the dialog
-        loginDialog->exec();
-        logger->info("Login dialog closed");
+        int result = loginDialog->exec();
+        
+        logger->info(QString("Login dialog closed with result: %1").arg(result));
+        
     } catch (const std::exception& e) {
         logger->error(QString("Exception in showLoginDialog(): %1").arg(e.what()));
     } catch (...) {
