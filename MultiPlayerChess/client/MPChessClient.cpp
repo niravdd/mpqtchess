@@ -15,7 +15,10 @@
 #include <QMediaFormat>
 
 // Logger implementation
-Logger::Logger(QObject* parent) : QObject(parent), logLevel(LogLevel::INFO), logToFile(false) {
+Logger::Logger(QObject* parent) : QObject(parent), logLevel(LogLevel::INFO), logToFile(false)
+{
+    sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
     // Default log level is INFO
 }
 
@@ -81,7 +84,8 @@ void Logger::error(const QString& message) {
     }
 }
 
-void Logger::setLogToFile(bool enabled, const QString& filePath) {
+void Logger::setLogToFile(bool enabled, const QString& filePath)
+{
     try {
         QMutexLocker<QMutex> locker(&mutex);
         
@@ -93,11 +97,19 @@ void Logger::setLogToFile(bool enabled, const QString& filePath) {
         logToFile = enabled;
         
         if (enabled) {
-            // Set log file path
+            // Set log file path with unique identifier
             if (filePath.isEmpty()) {
-                // Use current directory instead of AppDataLocation
+                // Use current directory
                 QString defaultPath = QDir::currentPath();
-                logFilePath = defaultPath + "/mpchess_client.log";
+                
+                // Create unique filename with process ID and timestamp
+                qint64 pid = QCoreApplication::applicationPid();
+                QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+                
+                logFilePath = QString("%1/mpchess_client_%2_%3.log")
+                    .arg(defaultPath)
+                    .arg(pid)
+                    .arg(timestamp);
                 
                 // Print the log file path to console
                 qDebug() << "Log file will be created at:" << logFilePath;
@@ -105,17 +117,29 @@ void Logger::setLogToFile(bool enabled, const QString& filePath) {
                 logFilePath = filePath;
             }
             
+            // Create directory if it doesn't exist
+            QFileInfo fileInfo(logFilePath);
+            QDir directory = fileInfo.dir();
+            if (!directory.exists()) {
+                if (!directory.mkpath(".")) {
+                    qWarning() << "Failed to create log directory:" << directory.path();
+                    logToFile = false;
+                    return;
+                }
+            }
+            
             // Open log file
             logFile.setFileName(logFilePath);
             if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-                qWarning() << "Failed to open log file:" << logFilePath;
+                qWarning() << "Failed to open log file:" << logFilePath << "Error:" << logFile.errorString();
                 logToFile = false;
                 return;
             }
 
             // Write a separator line safely
             QTextStream stream(&logFile);
-            stream << "\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> App Launched <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+            stream << "\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> App Launched (PID: " << QCoreApplication::applicationPid() << ") <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+            stream << "Log started at: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz") << "\n";
             logFile.flush();
         }
     } catch (const std::exception& e) {
@@ -139,15 +163,47 @@ QString Logger::getLogFilePath() const {
     return logFilePath;
 }
 
+void Logger::checkLogFileSize() {
+    if (!logToFile || !logFile.isOpen()) {
+        return;
+    }
+    
+    // Rotate log if it exceeds 10MB
+    if (logFile.size() > 10 * 1024 * 1024) {
+        QString oldFilePath = logFilePath;
+        logFile.close();
+        
+        // Create new log file with current timestamp
+        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+        qint64 pid = QCoreApplication::applicationPid();
+        logFilePath = QString("%1/mpchess_client_%2_%3.log")
+            .arg(QFileInfo(oldFilePath).dir().path())
+            .arg(pid)
+            .arg(timestamp);
+        
+        logFile.setFileName(logFilePath);
+        if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            qWarning() << "Failed to open new log file after rotation:" << logFilePath;
+            logToFile = false;
+            return;
+        }
+        
+        QTextStream stream(&logFile);
+        stream << "Log rotated from " << oldFilePath << " at " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz") << "\n";
+        logFile.flush();
+    }
+}
+
 void Logger::log(LogLevel level, const QString& message) {
     if (level < logLevel) {
         return;
     }
     
     try {
-        QString formattedMessage = QString("%1 [%2] %3")
+        QString formattedMessage = QString("%1 [%2] [%3] %4")
             .arg(getCurrentTimestamp())
             .arg(levelToString(level))
+            .arg(sessionId.left(8))                                                             // Using only first 8 chars of session ID
             .arg(message);
         
         QMutexLocker<QMutex> locker(&mutex);
@@ -165,6 +221,13 @@ void Logger::log(LogLevel level, const QString& message) {
         if (logToFile && logFile.isOpen()) {
             QTextStream stream(&logFile);
             stream << formattedMessage << Qt::endl;
+            
+            // Check log size periodically (e.g., every 1000 messages)
+            static int messageCount = 0;
+            if (++messageCount % 1000 == 0) {
+                checkLogFileSize();
+            }
+
             logFile.flush();
         }
         
@@ -189,7 +252,7 @@ QString Logger::levelToString(LogLevel level) const {
 }
 
 QString Logger::getCurrentTimestamp() const {
-    return QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
+    return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
 }
 
 // NetworkManager implementation
@@ -3757,7 +3820,7 @@ void GameHistoryWidget::populateGamesTable(const QJsonArray& games) {
         gamesTable->insertRow(row);
         
         // Date column
-        QTableWidgetItem* dateItem = new QTableWidgetItem(startTime.toString("yyyy-MM-dd hh:mm"));
+        QTableWidgetItem* dateItem = new QTableWidgetItem(startTime.toString("yyyy-MM-dd HH:mm"));
         dateItem->setData(Qt::UserRole, gameId);
         gamesTable->setItem(row, 0, dateItem);
         

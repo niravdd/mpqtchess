@@ -68,6 +68,7 @@
 #include <QLoggingCategory>
 #include <QHBoxLayout>
 #include <QTextEdit>
+#include <QCoreApplication>
 
 #include <vector>
 #include <map>
@@ -382,6 +383,7 @@ public:
     
     void setLogToFile(bool enabled, const QString& filePath = QString());
     bool isLoggingToFile() const;
+    void checkLogFileSize();
     
     QString getLogFilePath() const;
 
@@ -394,6 +396,7 @@ private:
     QString logFilePath;
     QFile logFile;
     QMutex mutex;
+    QString sessionId;
     
     void log(LogLevel level, const QString& message);
     QString levelToString(LogLevel level) const;
