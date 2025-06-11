@@ -2,6 +2,11 @@
 
 #include "MPChessServer.h"
 
+// Initialize static members
+std::mutex PerformanceMonitor::mutex;
+std::unordered_map<std::string, std::chrono::time_point<std::chrono::high_resolution_clock>> PerformanceMonitor::operationTimers;
+std::unordered_map<std::string, PerformanceMonitor::OperationStats> PerformanceMonitor::operationStats;
+
 // Implementation of ChessPiece class
 ChessPiece::ChessPiece(PieceType type, PieceColor color)
     : type(type), color(color), moved(false) {
@@ -608,7 +613,8 @@ const ChessPiece* ChessBoard::getPiece(const Position& pos) const {
     return board[pos.row][pos.col].get();
 }
 
-MoveValidationStatus ChessBoard::movePiece(const ChessMove& move, bool validateOnly) {
+MoveValidationStatus ChessBoard::movePiece(const ChessMove& move, bool validateOnly)
+{
     const Position& from = move.getFrom();
     const Position& to = move.getTo();
     
@@ -691,194 +697,840 @@ MoveValidationStatus ChessBoard::movePiece(const ChessMove& move, bool validateO
     
     // Update state
     updateStateAfterMove(move, capturedPiece);
-    
+
+    // Clear caches since the board state has changed
+    clearCaches();
+
     return MoveValidationStatus::VALID;
 }
 
+/*
 bool ChessBoard::isUnderAttack(const Position& pos, PieceColor attackerColor) const
 {
-    static thread_local int recursionDepth = 0;
-    
-    // Prevent excessive recursion
-    if (recursionDepth > 3) {
-        return false;
-    }
-
-    recursionDepth++;
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::isUnderAttack");
 
     MPChessServer* server = MPChessServer::getInstance();
     if (server && server->getLogger())
     {
-        server->getLogger()->debug("ChessBoard::isUnderAttack() - Checking...");
+        server->getLogger()->debug("ChessBoard::isUnderAttack() - Checking if position " + 
+                                  pos.toAlgebraic() + " is under attack by " + 
+                                  (attackerColor == PieceColor::WHITE ? "white" : "black"));
     }
 
-    // Direct check for attacks without recursion
-    bool result = false;
+    // Check recursion depth
+    if (!incrementRecursionDepth("isUnderAttack")) {
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after recursion depth check: " + 
+                                    std::to_string(duration) + "ms");
+        }
 
-    // Check direct attacks from each piece type without using getPossibleMoves
-    for (int r = 0; r < 8; ++r)
-    {
-        for (int c = 0; c < 8; ++c)
-        {
-            Position attackerPos(r, c);
-            const ChessPiece* attacker = getPiece(attackerPos);
-            if (!attacker || attacker->getColor() != attackerColor) {
-                continue;
+        return false;
+    }
+    
+    try {
+        // Check cache first
+        std::string cacheKey = generateAttackCacheKey(pos, attackerColor);
+        auto cacheIt = attackCache.find(cacheKey);
+        if (cacheIt != attackCache.end()) {
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessBoard::isUnderAttack() - Cache hit for position " + 
+                                          pos.toAlgebraic());
+            }
+            decrementRecursionDepth();
+
+            // End timing and log
+            double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after cacheCheck: " + 
+                                        std::to_string(duration) + "ms");
             }
 
-            // Check based on piece type and movement patterns
-            PieceType type = attacker->getType();
-            
-            // Pawn attacks
-            if (type == PieceType::PAWN) {
-                int direction = (attackerColor == PieceColor::WHITE) ? 1 : -1;
-                if ((attackerPos.row + direction == pos.row) && 
-                    (attackerPos.col + 1 == pos.col || attackerPos.col - 1 == pos.col)) {
+            return cacheIt->second;
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Checking if position " + 
+                                      pos.toAlgebraic() + " is under attack by " + 
+                                      (attackerColor == PieceColor::WHITE ? "white" : "black"));
+        }
+
+        // Check pawn attacks first (most common and simple to check)
+        int pawnDirection = (attackerColor == PieceColor::WHITE) ? 1 : -1;
+        Position leftAttacker(pos.row - pawnDirection, pos.col - 1);
+        Position rightAttacker(pos.row - pawnDirection, pos.col + 1);
+        
+        // Check left pawn attack
+        if (leftAttacker.isValid()) {
+            const ChessPiece* piece = getPiece(leftAttacker);
+            if (piece && piece->getType() == PieceType::PAWN && piece->getColor() == attackerColor) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a pawn at " + 
+                                              leftAttacker.toAlgebraic());
+                }
+                attackCache[cacheKey] = true;
+                decrementRecursionDepth();
+
+                // End timing and log
+                double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after left pawn attack check: " + 
+                                            std::to_string(duration) + "ms");
+                }
+
+                return true;
+            }
+        }
+        
+        // Check right pawn attack
+        if (rightAttacker.isValid()) {
+            const ChessPiece* piece = getPiece(rightAttacker);
+            if (piece && piece->getType() == PieceType::PAWN && piece->getColor() == attackerColor) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a pawn at " + 
+                                              rightAttacker.toAlgebraic());
+                }
+                attackCache[cacheKey] = true;
+                decrementRecursionDepth();
+
+                // End timing and log
+                double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after right pawn attack check: " + 
+                                            std::to_string(duration) + "ms");
+                }
+
+                return true;
+            }
+        }
+        
+        // Knight attacks (fixed offsets)
+        const std::vector<std::pair<int, int>> knightOffsets = {
+            {2, 1}, {1, 2}, {-1, 2}, {-2, 1},
+            {-2, -1}, {-1, -2}, {1, -2}, {2, -1}
+        };
+        
+        for (const auto& offset : knightOffsets) {
+            Position attackerPos(pos.row + offset.first, pos.col + offset.second);
+            if (attackerPos.isValid()) {
+                const ChessPiece* piece = getPiece(attackerPos);
+                if (piece && piece->getType() == PieceType::KNIGHT && piece->getColor() == attackerColor) {
                     if (server && server->getLogger()) {
-                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a pawn");
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a knight at " + 
+                                                  attackerPos.toAlgebraic());
                     }
-                    recursionDepth--;
-                    return true;
-                }
-            }
-            
-            // Knight attacks
-            else if (type == PieceType::KNIGHT) {
-                int rowDiff = std::abs(pos.row - attackerPos.row);
-                int colDiff = std::abs(pos.col - attackerPos.col);
-                if ((rowDiff == 1 && colDiff == 2) || (rowDiff == 2 && colDiff == 1)) {
-                    if (server && server->getLogger()) {
-                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a knight");
+                    attackCache[cacheKey] = true;
+                    decrementRecursionDepth();
+
+                    // End timing and log
+                    double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after Knight attack check: " + 
+                                                std::to_string(duration) + "ms");
                     }
-                    recursionDepth--;
-                    return true;
-                }
-            }
-            
-            // Bishop/Queen diagonal attacks
-            else if (type == PieceType::BISHOP || type == PieceType::QUEEN) {
-                if (std::abs(pos.row - attackerPos.row) == std::abs(pos.col - attackerPos.col)) {
-                    // Check if path is clear
-                    int rowStep = (pos.row > attackerPos.row) ? 1 : (pos.row < attackerPos.row) ? -1 : 0;
-                    int colStep = (pos.col > attackerPos.col) ? 1 : (pos.col < attackerPos.col) ? -1 : 0;
-                    
-                    bool pathClear = true;
-                    int r = attackerPos.row + rowStep;
-                    int c = attackerPos.col + colStep;
-                    
-                    while (r != pos.row || c != pos.col) {
-                        if (getPiece(Position(r, c)) != nullptr) {
-                            pathClear = false;
-                            break;
-                        }
-                        r += rowStep;
-                        c += colStep;
-                    }
-                    
-                    if (pathClear) {
-                        if (server && server->getLogger()) {
-                            server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack diagonally");
-                        }
-                        recursionDepth--;
-                        return true;
-                    }
-                }
-            }
-            
-            // Rook/Queen straight attacks
-            if (type == PieceType::ROOK || type == PieceType::QUEEN) {
-                if (pos.row == attackerPos.row || pos.col == attackerPos.col) {
-                    // Check if path is clear
-                    int rowStep = (pos.row > attackerPos.row) ? 1 : (pos.row < attackerPos.row) ? -1 : 0;
-                    int colStep = (pos.col > attackerPos.col) ? 1 : (pos.col < attackerPos.col) ? -1 : 0;
-                    
-                    bool pathClear = true;
-                    int r = attackerPos.row + rowStep;
-                    int c = attackerPos.col + colStep;
-                    
-                    while ((rowStep != 0 && r != pos.row) || (colStep != 0 && c != pos.col)) {
-                        if (getPiece(Position(r, c)) != nullptr) {
-                            pathClear = false;
-                            break;
-                        }
-                        r += rowStep;
-                        c += colStep;
-                    }
-                    
-                    if (pathClear) {
-                        if (server && server->getLogger()) {
-                            server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack in straight line");
-                        }
-                        recursionDepth--;
-                        return true;
-                    }
-                }
-            }
-            
-            // King attacks (adjacent squares)
-            else if (type == PieceType::KING) {
-                int rowDiff = std::abs(pos.row - attackerPos.row);
-                int colDiff = std::abs(pos.col - attackerPos.col);
-                if (rowDiff <= 1 && colDiff <= 1 && (rowDiff != 0 || colDiff != 0)) {
-                    if (server && server->getLogger()) {
-                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a king");
-                    }
-                    recursionDepth--;
+
                     return true;
                 }
             }
         }
+        
+        // King attacks (adjacent squares)
+        const std::vector<std::pair<int, int>> kingOffsets = {
+            {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}
+        };
+        
+        for (const auto& offset : kingOffsets) {
+            Position attackerPos(pos.row + offset.first, pos.col + offset.second);
+            if (attackerPos.isValid()) {
+                const ChessPiece* piece = getPiece(attackerPos);
+                if (piece && piece->getType() == PieceType::KING && piece->getColor() == attackerColor) {
+                    if (server && server->getLogger()) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a king at " + 
+                                                  attackerPos.toAlgebraic());
+                    }
+                    attackCache[cacheKey] = true;
+                    decrementRecursionDepth();
+
+                    // End timing and log
+                    double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after left King attack check: " + 
+                                                std::to_string(duration) + "ms");
+                    }
+
+                    return true;
+                }
+            }
+        }
+        
+        // Sliding piece attacks (bishop, rook, queen)
+        // Define direction vectors for all 8 directions
+        const std::vector<std::pair<int, int>> directions = {
+            {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}
+        };
+        
+        for (const auto& dir : directions) {
+            for (int dist = 1; dist < 8; ++dist) {
+                Position attackerPos(pos.row + dir.first * dist, pos.col + dir.second * dist);
+                if (!attackerPos.isValid()) break;
+                
+                const ChessPiece* piece = getPiece(attackerPos);
+                if (!piece) continue;  // Empty square, continue in this direction
+                
+                if (piece->getColor() != attackerColor) break;  // Blocked by opponent piece
+                
+                bool isDiagonal = dir.first != 0 && dir.second != 0;
+                bool isOrthogonal = dir.first == 0 || dir.second == 0;
+                
+                // Check if the piece can attack in this direction
+                if ((isDiagonal && (piece->getType() == PieceType::BISHOP || piece->getType() == PieceType::QUEEN)) ||
+                    (isOrthogonal && (piece->getType() == PieceType::ROOK || piece->getType() == PieceType::QUEEN))) {
+                    if (server && server->getLogger()) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a " + 
+                                                 std::string(piece->getType() == PieceType::BISHOP ? "bishop" : 
+                                                            piece->getType() == PieceType::ROOK ? "rook" : "queen") + 
+                                                 " at " + attackerPos.toAlgebraic());
+                    }
+                    attackCache[cacheKey] = true;
+                    decrementRecursionDepth();
+
+                    // End timing and log
+                    double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after left sliding piece attack check: " + 
+                                                std::to_string(duration) + "ms");
+                    }
+
+                    return true;
+                }
+                
+                break;  // Blocked by a piece that can't attack in this direction
+            }
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Position " + pos.toAlgebraic() + 
+                                      " is not under attack");
+        }
+        
+        // Cache the negative result
+        attackCache[cacheKey] = false;
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after all attack checks: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return false;
+    }
+    catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isUnderAttack() - Exception: " + std::string(e.what()));
+        }
+        decrementRecursionDepth();
+        return false;
+    }
+    catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isUnderAttack() - Unknown exception");
+        }
+        decrementRecursionDepth();
+        return false;
+    }
+}
+*/
+
+bool ChessBoard::isUnderAttack(const Position& pos, PieceColor attackerColor) const
+{
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::isUnderAttack");
+
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3)
+    {
+        server->getLogger()->debug("ChessBoard::isUnderAttack() - Checking if position " + 
+                                  pos.toAlgebraic() + " is under attack by " + 
+                                  (attackerColor == PieceColor::WHITE ? "white" : "black"));
     }
 
+    // Check recursion depth
+    if (!incrementRecursionDepth("isUnderAttack")) {
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after recursion depth check: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return false;
+    }
+    
+    try {
+        // Check cache first
+        std::string cacheKey = generateAttackCacheKey(pos, attackerColor);
+        auto cacheIt = attackCache.find(cacheKey);
+        if (cacheIt != attackCache.end()) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isUnderAttack() - Cache hit for position " + 
+                                          pos.toAlgebraic());
+            }
+            decrementRecursionDepth();
+
+            // End timing and log
+            double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after cacheCheck: " + 
+                                        std::to_string(duration) + "ms");
+            }
+
+            return cacheIt->second;
+        }
+        
+        // Check pawn attacks first (most common and simple to check)
+        int pawnDirection = (attackerColor == PieceColor::WHITE) ? 1 : -1;
+        Position leftAttacker(pos.row - pawnDirection, pos.col - 1);
+        Position rightAttacker(pos.row - pawnDirection, pos.col + 1);
+        
+        // Check left pawn attack
+        if (leftAttacker.isValid()) {
+            const ChessPiece* piece = getPiece(leftAttacker);
+            if (piece && piece->getType() == PieceType::PAWN && piece->getColor() == attackerColor) {
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a pawn at " + 
+                                              leftAttacker.toAlgebraic());
+                }
+                attackCache[cacheKey] = true;
+                decrementRecursionDepth();
+
+                // End timing and log
+                double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after left pawn attack check: " + 
+                                            std::to_string(duration) + "ms");
+                }
+
+                return true;
+            }
+        }
+        
+        // Check right pawn attack
+        if (rightAttacker.isValid()) {
+            const ChessPiece* piece = getPiece(rightAttacker);
+            if (piece && piece->getType() == PieceType::PAWN && piece->getColor() == attackerColor) {
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a pawn at " + 
+                                              rightAttacker.toAlgebraic());
+                }
+                attackCache[cacheKey] = true;
+                decrementRecursionDepth();
+
+                // End timing and log
+                double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after right pawn attack check: " + 
+                                            std::to_string(duration) + "ms");
+                }
+
+                return true;
+            }
+        }
+        
+        // Knight attacks (fixed offsets)
+        const std::vector<std::pair<int, int>> knightOffsets = {
+            {2, 1}, {1, 2}, {-1, 2}, {-2, 1},
+            {-2, -1}, {-1, -2}, {1, -2}, {2, -1}
+        };
+        
+        for (const auto& offset : knightOffsets) {
+            Position attackerPos(pos.row + offset.first, pos.col + offset.second);
+            if (attackerPos.isValid()) {
+                const ChessPiece* piece = getPiece(attackerPos);
+                if (piece && piece->getType() == PieceType::KNIGHT && piece->getColor() == attackerColor) {
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a knight at " + 
+                                                  attackerPos.toAlgebraic());
+                    }
+                    attackCache[cacheKey] = true;
+                    decrementRecursionDepth();
+
+                    // End timing and log
+                    double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after Knight attack check: " + 
+                                                std::to_string(duration) + "ms");
+                    }
+
+                    return true;
+                }
+            }
+        }
+        
+        // King attacks (adjacent squares)
+        const std::vector<std::pair<int, int>> kingOffsets = {
+            {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}
+        };
+        
+        for (const auto& offset : kingOffsets) {
+            Position attackerPos(pos.row + offset.first, pos.col + offset.second);
+            if (attackerPos.isValid()) {
+                const ChessPiece* piece = getPiece(attackerPos);
+                if (piece && piece->getType() == PieceType::KING && piece->getColor() == attackerColor) {
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a king at " + 
+                                                  attackerPos.toAlgebraic());
+                    }
+                    attackCache[cacheKey] = true;
+                    decrementRecursionDepth();
+
+                    // End timing and log
+                    double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after King attack check: " + 
+                                                std::to_string(duration) + "ms");
+                    }
+
+                    return true;
+                }
+            }
+        }
+        
+        // Sliding piece attacks (bishop, rook, queen)
+        // Define direction vectors for all 8 directions
+        const std::vector<std::pair<int, int>> directions = {
+            {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}
+        };
+        
+        for (const auto& dir : directions) {
+            for (int dist = 1; dist < 8; ++dist) {
+                Position attackerPos(pos.row + dir.first * dist, pos.col + dir.second * dist);
+                if (!attackerPos.isValid()) break;
+                
+                const ChessPiece* piece = getPiece(attackerPos);
+                if (!piece) continue;  // Empty square, continue in this direction
+                
+                if (piece->getColor() != attackerColor) break;  // Blocked by opponent piece
+                
+                bool isDiagonal = dir.first != 0 && dir.second != 0;
+                bool isOrthogonal = dir.first == 0 || dir.second == 0;
+                
+                // Check if the piece can attack in this direction
+                if ((isDiagonal && (piece->getType() == PieceType::BISHOP || piece->getType() == PieceType::QUEEN)) ||
+                    (isOrthogonal && (piece->getType() == PieceType::ROOK || piece->getType() == PieceType::QUEEN))) {
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is under attack by a " + 
+                                                 std::string(piece->getType() == PieceType::BISHOP ? "bishop" : 
+                                                            piece->getType() == PieceType::ROOK ? "rook" : "queen") + 
+                                                 " at " + attackerPos.toAlgebraic());
+                    }
+                    attackCache[cacheKey] = true;
+                    decrementRecursionDepth();
+
+                    // End timing and log
+                    double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+                    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                        server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after sliding piece attack check: " + 
+                                                std::to_string(duration) + "ms");
+                    }
+
+                    return true;
+                }
+                
+                break;  // Blocked by a piece that can't attack in this direction
+            }
+        }
+        
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Position " + pos.toAlgebraic() + 
+                                      " is not under attack");
+        }
+        
+        // Cache the negative result
+        attackCache[cacheKey] = false;
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isUnderAttack");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isUnderAttack() - Execution time after all attack checks: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return false;
+    }
+    catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isUnderAttack() - Exception: " + std::string(e.what()));
+        }
+        decrementRecursionDepth();
+        return false;
+    }
+    catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isUnderAttack() - Unknown exception");
+        }
+        decrementRecursionDepth();
+        return false;
+    }
+}
+
+bool ChessBoard::incrementRecursionDepth(const std::string& functionName) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    std::thread::id threadId = std::this_thread::get_id();
+    
+    // Initialize if not present
+    if (recursionDepth.find(threadId) == recursionDepth.end()) {
+        recursionDepth[threadId] = 0;
+    }
+    
+    recursionDepth[threadId]++;
+    
+    if (recursionDepth[threadId] > MAX_RECURSION_DEPTH) {
+        if (server && server->getLogger()) {
+            server->getLogger()->warning("ChessBoard::" + functionName + 
+                                       " - Maximum recursion depth exceeded: " + 
+                                       std::to_string(recursionDepth[threadId]));
+        }
+        recursionDepth[threadId]--;
+        return false;
+    }
+    
+    return true;
+}
+
+void ChessBoard::decrementRecursionDepth() const
+{
+    std::thread::id threadId = std::this_thread::get_id();
+    if (recursionDepth.find(threadId) != recursionDepth.end() && recursionDepth[threadId] > 0) {
+        recursionDepth[threadId]--;
+    }
+}
+
+std::string ChessBoard::generateCheckCacheKey(PieceColor color) const
+{
+    // Generate a unique key for the current board state and color
+    std::string key = getBoardStateString() + "_check_" + 
+                     (color == PieceColor::WHITE ? "white" : "black");
+    return key;
+}
+
+std::string ChessBoard::generateAttackCacheKey(const Position& pos, PieceColor attackerColor) const
+{
+    // Generate a unique key for the current board state, position, and attacker color
+    std::string key = getBoardStateString() + "_attack_" + 
+                     pos.toAlgebraic() + "_" +
+                     (attackerColor == PieceColor::WHITE ? "white" : "black");
+    return key;
+}
+
+void ChessBoard::clearCaches() const
+{
+    checkCache.clear();
+    attackCache.clear();
+    checkResultCache.clear();
+}
+
+void ChessBoard::recordBoardDelta(const Position& pos) const
+{
+    if (!pos.isValid()) return;
+    
+    // Check if this position is already in the delta
+    for (auto& delta : lastMoveDelta) {
+        if (delta.position == pos) {
+            // Already recorded
+            return;
+        }
+    }
+    
+    // Record the current state at this position
+    BoardDelta delta;
+    delta.position = pos;
+    delta.isModified = false;
+    
+    const ChessPiece* piece = getPiece(pos);
+    if (piece) {
+        delta.oldPiece = piece->clone();
+    }
+    
+    lastMoveDelta.push_back(std::move(delta));
+}
+
+void ChessBoard::clearBoardDelta() const
+{
+    lastMoveDelta.clear();
+}
+
+void ChessBoard::restoreBoardDelta() const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    
+    if (server && server->getLogger()) {
+        server->getLogger()->debug("ChessBoard::restoreBoardDelta() - Restoring " + 
+                                  std::to_string(lastMoveDelta.size()) + " board positions");
+    }
+    
+    for (auto& delta : lastMoveDelta) {
+        if (delta.isModified) {
+            // Restore the old piece
+            // We need to cast away const-ness here since we're modifying the board in a const method
+            // This is safe because we're restoring the original state
+            auto& boardCell = const_cast<std::unique_ptr<ChessPiece>&>(board[delta.position.row][delta.position.col]);
+            boardCell = std::move(delta.oldPiece);
+        }
+    }
+    
+    clearBoardDelta();
+}
+
+/*
+bool ChessBoard::isInCheck(PieceColor color) const
+{
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::isInCheck");
+
+    MPChessServer* server = MPChessServer::getInstance();
     if (server && server->getLogger())
     {
-        server->getLogger()->debug("ChessBoard::isUnderAttack() - Position is not under attack");
+        server->getLogger()->debug("ChessBoard::isInCheck() - Checking if " + 
+                                  std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                  " king is in check");
     }
+    
+    // Check recursion depth
+    if (!incrementRecursionDepth("isInCheck")) {
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after recursion depth check: " + 
+                                    std::to_string(duration) + "ms");
+        }
+        return false;
+    }
+    
+    try {
+        // Check cache first
+        std::string cacheKey = generateCheckCacheKey(color);
+        auto cacheIt = checkCache.find(cacheKey);
+        if (cacheIt != checkCache.end()) {
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessBoard::isInCheck() - Cache hit for " + 
+                                          std::string(color == PieceColor::WHITE ? "white" : "black"));
+            }
+            decrementRecursionDepth();
 
-    recursionDepth--;
-    return false;
+            // End timing and log
+            double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after checkCache: " + 
+                                        std::to_string(duration) + "ms");
+            }
+
+            return cacheIt->second;
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Checking if " + 
+                                      std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                      " king is in check");
+        }
+        
+        // Find the king position
+        Position kingPos = getKingPosition(color);
+        if (!kingPos.isValid()) {
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("ChessBoard::isInCheck() - King position is invalid");
+            }
+            decrementRecursionDepth();
+
+            // End timing and log
+            double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after kingPosInvalid: " + 
+                                        std::to_string(duration) + "ms");
+            }
+
+            return false;
+        }
+        
+        // Check if the king is under attack by the opposite color
+        PieceColor opponentColor = (color == PieceColor::WHITE) ? PieceColor::BLACK : PieceColor::WHITE;
+        bool result = isUnderAttack(kingPos, opponentColor);
+        
+        // Cache the result
+        checkCache[cacheKey] = result;
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - " + 
+                                      std::string(color == PieceColor::WHITE ? "White" : "Black") + 
+                                      " king is " + (result ? "in check" : "not in check"));
+        }
+        
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after isUnderAttack check for king: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return result;
+    }
+    catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isInCheck() - Exception: " + std::string(e.what()));
+        }
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after inner exception handler: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return false;
+    }
+    catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isInCheck() - Unknown exception");
+        }
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after outer exception handler: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return false;
+    }
 }
+*/
 
 bool ChessBoard::isInCheck(PieceColor color) const
 {
-    static thread_local int recursionDepth = 0;
-    
-    // Prevent excessive recursion
-    if (recursionDepth > 3) {
-        return false;
-    }
-
-    recursionDepth++;
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::isInCheck");
 
     MPChessServer* server = MPChessServer::getInstance();
-    if (server && server->getLogger())
+    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3)
     {
-        server->getLogger()->debug("ChessBoard::isInCheck() - Checking...");
+        server->getLogger()->debug("ChessBoard::isInCheck() - Checking if " + 
+                                  std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                  " king is in check");
     }
-
-    Position kingPos = getKingPosition(color);
-    if (!kingPos.isValid())
-    {
-        recursionDepth--;
-
-        if (server && server->getLogger())
-        {
-            server->getLogger()->debug("ChessBoard::isInCheck() - King Position is invalid...");
+    
+    // Check recursion depth
+    if (!incrementRecursionDepth("isInCheck")) {
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after recursion depth check: " + 
+                                    std::to_string(duration) + "ms");
         }
         return false;
     }
     
-    PieceColor opponentColor = (color == PieceColor::WHITE) ? PieceColor::BLACK : PieceColor::WHITE;
+    try {
+        // Check cache first
+        std::string cacheKey = generateCheckCacheKey(color);
+        auto cacheIt = checkCache.find(cacheKey);
+        if (cacheIt != checkCache.end()) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isInCheck() - Cache hit for " + 
+                                          std::string(color == PieceColor::WHITE ? "white" : "black"));
+            }
+            decrementRecursionDepth();
 
-    if (server && server->getLogger())
-    {
-        server->getLogger()->debug("ChessBoard::isInCheck() - Checking done. Returning state if King is under attack...");
+            // End timing and log
+            double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after checkCache: " + 
+                                        std::to_string(duration) + "ms");
+            }
+
+            return cacheIt->second;
+        }
+        
+        // Find the king position
+        Position kingPos = getKingPosition(color);
+        if (!kingPos.isValid()) {
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("ChessBoard::isInCheck() - King position is invalid");
+            }
+            decrementRecursionDepth();
+
+            // End timing and log
+            double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after kingPosInvalid: " + 
+                                        std::to_string(duration) + "ms");
+            }
+
+            return false;
+        }
+        
+        // Check if the king is under attack by the opposite color
+        PieceColor opponentColor = (color == PieceColor::WHITE) ? PieceColor::BLACK : PieceColor::WHITE;
+        bool result = isUnderAttack(kingPos, opponentColor);
+        
+        // Cache the result
+        checkCache[cacheKey] = result;
+        
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - " + 
+                                      std::string(color == PieceColor::WHITE ? "White" : "Black") + 
+                                      " king is " + (result ? "in check" : "not in check"));
+        }
+        
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after isUnderAttack check for king: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return result;
     }
+    catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isInCheck() - Exception: " + std::string(e.what()));
+        }
+        decrementRecursionDepth();
 
-    bool result = isUnderAttack(kingPos, opponentColor);
-    recursionDepth--;
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after inner exception handler: " + 
+                                    std::to_string(duration) + "ms");
+        }
 
-    return result;
+        return false;
+    }
+    catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isInCheck() - Unknown exception");
+        }
+        decrementRecursionDepth();
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::isInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::isInCheck() - Execution time after outer exception handler: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        return false;
+    }
 }
 
 bool ChessBoard::isInCheckmate(PieceColor color) const
@@ -886,49 +1538,72 @@ bool ChessBoard::isInCheckmate(PieceColor color) const
     MPChessServer* server = MPChessServer::getInstance();
     if (server && server->getLogger())
     {
-        server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking...");
+        server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking if " + 
+                                  std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                  " is in checkmate");
     }
 
-    if (!isInCheck(color))
-    {
-        if (server && server->getLogger())
-        {
-            server->getLogger()->debug("ChessBoard::isInCheckmate() - Current colour king is not in check, returning...");
+    try {
+        // First check if the king is in check
+        if (!isInCheck(color)) {
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessBoard::isInCheckmate() - King is not in check, so not checkmate");
+            }
+            return false;
         }
-        return false;
-    }
-    
-    // Check if any move can get the king out of check
-    for (int r = 0; r < 8; ++r)
-    {
-        for (int c = 0; c < 8; ++c)
-        {
-            Position pos(r, c);
-            const ChessPiece* piece = getPiece(pos);
-            if (piece && piece->getColor() == color)
-            {
-                std::vector<Position> moves = piece->getPossibleMoves(pos, *this);
-                for (const Position& to : moves)
-                {
+        
+        // Check if any move can get the king out of check
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                Position pos(r, c);
+                const ChessPiece* piece = getPiece(pos);
+                if (!piece || piece->getColor() != color) continue;
+                
+                // Get possible moves for this piece
+                std::vector<Position> moves;
+                try {
+                    moves = piece->getPossibleMoves(pos, *this);
+                }
+                catch (const std::exception& e) {
+                    if (server && server->getLogger()) {
+                        server->getLogger()->error("ChessBoard::isInCheckmate() - Exception getting moves: " + 
+                                                 std::string(e.what()));
+                    }
+                    continue;
+                }
+                
+                // Check if any move can get out of check
+                for (const Position& to : moves) {
                     ChessMove move(pos, to);
-                    if (!wouldLeaveInCheck(move, color))
-                    {
-                        if (server && server->getLogger())
-                        {
-                            server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking done. No, not checkmate'd yet, returning...");
+                    if (!wouldLeaveInCheck(move, color)) {
+                        if (server && server->getLogger()) {
+                            server->getLogger()->debug("ChessBoard::isInCheckmate() - Found escape move: " + 
+                                                     pos.toAlgebraic() + " to " + to.toAlgebraic());
                         }
                         return false;
                     }
                 }
             }
         }
+        
+        // If we get here, no move can escape check
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::isInCheckmate() - No escape moves found, it's checkmate");
+        }
+        return true;
     }
-    if (server && server->getLogger())
-    {
-        server->getLogger()->debug("ChessBoard::isInCheckmate() - Checking done. Yes, in checkmate...");
+    catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isInCheckmate() - Exception: " + std::string(e.what()));
+        }
+        return false;
     }
-    
-    return true;
+    catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::isInCheckmate() - Unknown exception");
+        }
+        return false;
+    }
 }
 
 bool ChessBoard::isInStalemate(PieceColor color) const
@@ -936,14 +1611,14 @@ bool ChessBoard::isInStalemate(PieceColor color) const
     MPChessServer* server = MPChessServer::getInstance();
     if (server && server->getLogger())
     {
-        server->getLogger()->debug("ChessBoard::isInStalemate() - Checking...");
+        server->getLogger()->debug("ChessBoard::isInStalemate() - Checking if game is in stalemate");
     }
 
     if (isInCheck(color))
     {
         if (server && server->getLogger())
         {
-            server->getLogger()->debug("ChessBoard::isInStalemate() - Checking, we're note in check; returning...");
+            server->getLogger()->debug("ChessBoard::isInStalemate() - Checking, we're not in check; returning...");
         }
         return false;
     }
@@ -972,7 +1647,7 @@ bool ChessBoard::isInStalemate(PieceColor color) const
 
     if (server && server->getLogger())
     {
-        server->getLogger()->debug("ChessBoard::isInStalemate() - Yes...");
+        server->getLogger()->debug("ChessBoard::isInStalemate() - Yes, it is.");
     }
     
     return true;
@@ -980,6 +1655,16 @@ bool ChessBoard::isInStalemate(PieceColor color) const
 
 std::vector<ChessMove> ChessBoard::getAllValidMoves(PieceColor color) const
 {
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::getAllValidMoves");
+    
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::getAllValidMoves() - Getting all valid moves for " +
+                                  std::string(color == PieceColor::WHITE ? "white" : "black"));
+    }
+
     std::vector<ChessMove> validMoves;
     
     for (int r = 0; r < 8; ++r) {
@@ -1019,7 +1704,15 @@ std::vector<ChessMove> ChessBoard::getAllValidMoves(PieceColor color) const
             }
         }
     }
-    
+
+    // End timing and log
+    double duration = PerformanceMonitor::endTimer("ChessBoard::getAllValidMoves");
+    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+        server->getLogger()->debug("ChessBoard::getAllValidMoves() - Found " + 
+                                  std::to_string(validMoves.size()) + " valid moves in " + 
+                                  std::to_string(duration) + "ms");
+    }
+
     return validMoves;
 }
 
@@ -1154,7 +1847,8 @@ GameResult ChessBoard::getGameResult() const {
     return GameResult::IN_PROGRESS;
 }
 
-bool ChessBoard::canClaimThreefoldRepetition() const {
+bool ChessBoard::canClaimThreefoldRepetition() const
+{
     if (boardStates.empty()) return false;
     
     std::string currentState = boardStates.back();
@@ -1169,11 +1863,13 @@ bool ChessBoard::canClaimThreefoldRepetition() const {
     return count >= 3;
 }
 
-bool ChessBoard::canClaimFiftyMoveRule() const {
+bool ChessBoard::canClaimFiftyMoveRule() const
+{
     return halfMoveClock >= 100;  // 50 full moves = 100 half moves
 }
 
-bool ChessBoard::hasInsufficientMaterial() const {
+bool ChessBoard::hasInsufficientMaterial() const
+{
     int whitePieceCount = 0;
     int blackPieceCount = 0;
     bool whiteHasKnight = false;
@@ -1236,7 +1932,8 @@ bool ChessBoard::hasInsufficientMaterial() const {
     return false;
 }
 
-void ChessBoard::executeCastlingMove(const ChessMove& move) {
+void ChessBoard::executeCastlingMove(const ChessMove& move)
+{
     const Position& from = move.getFrom();
     const Position& to = move.getTo();
     
@@ -1260,7 +1957,8 @@ void ChessBoard::executeCastlingMove(const ChessMove& move) {
     }
 }
 
-void ChessBoard::executeEnPassantCapture(const ChessMove& move) {
+void ChessBoard::executeEnPassantCapture(const ChessMove& move)
+{
     const Position& from = move.getFrom();
     const Position& to = move.getTo();
     
@@ -1273,7 +1971,8 @@ void ChessBoard::executeEnPassantCapture(const ChessMove& move) {
     board[captureRow][to.col] = nullptr;
 }
 
-void ChessBoard::updateStateAfterMove(const ChessMove& move, const ChessPiece* capturedPiece) {
+void ChessBoard::updateStateAfterMove(const ChessMove& move, const ChessPiece* capturedPiece)
+{
     // Update move history
     moveHistory.push_back(move);
     
@@ -1315,54 +2014,513 @@ void ChessBoard::updateStateAfterMove(const ChessMove& move, const ChessPiece* c
     boardStates.push_back(getBoardStateString());
 }
 
-bool ChessBoard::wouldLeaveInCheck(const ChessMove& move, PieceColor color) const {
-    // Create a clone of the board
-    auto tempBoard = clone();
-    
-    // Execute the move without validation
-    const Position& from = move.getFrom();
-    const Position& to = move.getTo();
-    
-    // Handle special moves
-    if (isCastlingMove(move)) {
-        // For castling, we need to check if the king is in check at any point during the move
-        int direction = (to.col > from.col) ? 1 : -1;
-        
-        // Check if the king is in check at the starting position
-        if (tempBoard->isInCheck(color)) {
-            return true;
-        }
-        
-        // Check if the king would be in check at any intermediate position
-        Position midPos(from.row, from.col + direction);
-        
-        // Move the king to the intermediate position
-        tempBoard->board[midPos.row][midPos.col] = std::move(tempBoard->board[from.row][from.col]);
-        
-        // Check if the king would be in check
-        if (tempBoard->isInCheck(color)) {
-            return true;
-        }
-        
-        // Move the king to the final position
-        tempBoard->board[to.row][to.col] = std::move(tempBoard->board[midPos.row][midPos.col]);
-    } else if (isEnPassantCapture(move)) {
-        // Move the pawn
-        tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
-        
-        // Remove the captured pawn
-        int captureRow = (color == PieceColor::WHITE) ? to.row - 1 : to.row + 1;
-        tempBoard->board[captureRow][to.col] = nullptr;
-    } else {
-        // Regular move
-        tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+/*
+bool ChessBoard::wouldLeaveInCheck(const ChessMove& move, PieceColor color) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Checking move for " + 
+                                  std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                  "...");
     }
     
-    // Check if the king is in check after the move
-    return tempBoard->isInCheck(color);
+    // Check recursion depth
+    if (!incrementRecursionDepth("wouldLeaveInCheck")) {
+        // If we've exceeded max depth, conservatively assume it would leave in check
+        return true;
+    }
+    
+    try {
+        // Create a clone of the board
+        auto tempBoard = clone();
+        
+        // Execute the move without validation
+        const Position& from = move.getFrom();
+        const Position& to = move.getTo();
+        
+        // Handle special moves
+        if (isCastlingMove(move)) {
+            // For castling, we need to check if the king is in check at any point during the move
+            int direction = (to.col > from.col) ? 1 : -1;
+            
+            // Check if the king is in check at the starting position
+            if (tempBoard->isInCheck(color)) {
+                decrementRecursionDepth();
+                return true;
+            }
+            
+            // Check if the king would be in check at any intermediate position
+            Position midPos(from.row, from.col + direction);
+            
+            // Move the king to the intermediate position
+            tempBoard->board[midPos.row][midPos.col] = std::move(tempBoard->board[from.row][from.col]);
+            
+            // Check if the king would be in check
+            if (tempBoard->isInCheck(color)) {
+                decrementRecursionDepth();
+                return true;
+            }
+            
+            // Move the king to the final position
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[midPos.row][midPos.col]);
+        } else if (isEnPassantCapture(move)) {
+            // Move the pawn
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+            
+            // Remove the captured pawn
+            int captureRow = (color == PieceColor::WHITE) ? to.row - 1 : to.row + 1;
+            tempBoard->board[captureRow][to.col] = nullptr;
+        } else {
+            // Regular move
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+        }
+        
+        // Check if the king is in check after the move
+        bool result = tempBoard->isInCheck(color);
+        decrementRecursionDepth();
+        return result;
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::wouldLeaveInCheck() - Exception: " + std::string(e.what()));
+        }
+        decrementRecursionDepth();
+        return true; // Conservatively assume it would leave in check
+    } catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::wouldLeaveInCheck() - Unknown exception");
+        }
+        decrementRecursionDepth();
+        return true;
+    }
+}
+*/
+
+/*
+bool ChessBoard::wouldLeaveInCheck(const ChessMove& move, PieceColor color) const
+{
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::wouldLeaveInCheck");
+
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger())
+    {
+        server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Checking if move " + 
+                                  move.toAlgebraic() + " would leave " + 
+                                  std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                  " king in check");
+    }
+
+    // Check recursion depth
+    if (!incrementRecursionDepth("wouldLeaveInCheck")) {
+        // If we've exceeded max depth, conservatively assume it would leave in check
+        if (server && server->getLogger())
+        {
+            server->getLogger()->warning("ChessBoard::wouldLeaveInCheck() - Maximum recursion depth exceeded, assuming move would leave king in check");
+        }
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Execution time after recursion depth check: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        decrementRecursionDepth();
+        return true;
+    }
+    
+    try {
+        // Check cache first
+        std::string cacheKey = generateCheckResultCacheKey(move, color);
+        auto cacheIt = checkResultCache.find(cacheKey);
+        if (cacheIt != checkResultCache.end()) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Cache hit for move " + 
+                                          move.toAlgebraic() + ", result: " + 
+                                          (cacheIt->second ? "would leave in check" : "would not leave in check"));
+            }
+            
+            // End timing for cache hit
+            double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Cache hit execution time: " + 
+                                        std::to_string(duration) + "ms");
+            }
+            
+            decrementRecursionDepth();
+            return cacheIt->second;
+        }
+        
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Cache miss, creating board clone");
+        }
+        
+        // Create a clone of the board
+        auto tempBoard = clone();
+        
+        // Execute the move without validation
+        const Position& from = move.getFrom();
+        const Position& to = move.getTo();
+        
+        // Handle special moves
+        if (isCastlingMove(move)) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Processing castling move");
+            }
+            
+            // For castling, we need to check if the king is in check at any point during the move
+            int direction = (to.col > from.col) ? 1 : -1;
+            
+            // Check if the king is in check at the starting position
+            if (tempBoard->isInCheck(color)) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - King already in check, castling not allowed");
+                }
+                
+                // Cache the result
+                checkResultCache[cacheKey] = true;
+                
+                // End timing
+                double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Execution time (king already in check): " + 
+                                            std::to_string(duration) + "ms");
+                }
+                
+                decrementRecursionDepth();
+                return true;
+            }
+            
+            // Check if the king would be in check at any intermediate position
+            Position midPos(from.row, from.col + direction);
+            
+            // Move the king to the intermediate position
+            tempBoard->board[midPos.row][midPos.col] = std::move(tempBoard->board[from.row][from.col]);
+            if (tempBoard->board[midPos.row][midPos.col]) {
+                tempBoard->board[midPos.row][midPos.col]->setMoved(true);
+            }
+            
+            // Check if the king would be in check at the intermediate position
+            if (tempBoard->isInCheck(color)) {
+                if (server && server->getLogger()) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - King would pass through check during castling");
+                }
+                
+                // Cache the result
+                checkResultCache[cacheKey] = true;
+                
+                // End timing
+                double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Execution time (king passes through check): " + 
+                                            std::to_string(duration) + "ms");
+                }
+                
+                decrementRecursionDepth();
+                return true;
+            }
+            
+            // Move the king to the final position
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[midPos.row][midPos.col]);
+            if (tempBoard->board[to.row][to.col]) {
+                tempBoard->board[to.row][to.col]->setMoved(true);
+            }
+            
+            // Move the rook
+            int rookFromCol = (direction > 0) ? 7 : 0;
+            int rookToCol = (direction > 0) ? (to.col - 1) : (to.col + 1);
+            
+            Position rookFrom(from.row, rookFromCol);
+            Position rookTo(from.row, rookToCol);
+            tempBoard->board[rookTo.row][rookTo.col] = std::move(tempBoard->board[rookFrom.row][rookFrom.col]);
+            if (tempBoard->board[rookTo.row][rookTo.col]) {
+                tempBoard->board[rookTo.row][rookTo.col]->setMoved(true);
+            }
+            
+        } else if (isEnPassantCapture(move)) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Processing en passant capture");
+            }
+            
+            // Move the pawn
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+            if (tempBoard->board[to.row][to.col]) {
+                tempBoard->board[to.row][to.col]->setMoved(true);
+            }
+            
+            // Remove the captured pawn
+            int captureRow = (color == PieceColor::WHITE) ? to.row - 1 : to.row + 1;
+            tempBoard->board[captureRow][to.col] = nullptr;
+            
+        } else {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Processing regular move");
+            }
+            
+            // Regular move
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+            if (tempBoard->board[to.row][to.col]) {
+                tempBoard->board[to.row][to.col]->setMoved(true);
+            }
+        }
+        
+        // Check if the king is in check after the move
+        bool result = tempBoard->isInCheck(color);
+        
+        // Cache the result
+        checkResultCache[cacheKey] = result;
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Move " + 
+                                      move.toAlgebraic() + " would " + 
+                                      (result ? "leave king in check" : "not leave king in check"));
+        }
+        
+        decrementRecursionDepth();
+    
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Total execution time: " + 
+                                    std::to_string(duration) + "ms");
+        }
+        
+        return result;
+    
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::wouldLeaveInCheck() - Exception: " + std::string(e.what()));
+        }
+        
+        decrementRecursionDepth();
+        return true; // Conservatively assume it would leave in check
+    } catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::wouldLeaveInCheck() - Unknown exception");
+        }
+        
+        decrementRecursionDepth();        
+        return true; // Conservatively assume it would leave in check
+    }
+}
+*/
+
+bool ChessBoard::wouldLeaveInCheck(const ChessMove& move, PieceColor color) const
+{
+    // Start timing
+    PerformanceMonitor::startTimer("ChessBoard::wouldLeaveInCheck");
+
+    MPChessServer* server = MPChessServer::getInstance();
+    if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3)
+    {
+        server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Checking if move " + 
+                                  move.toAlgebraic() + " would leave " + 
+                                  std::string(color == PieceColor::WHITE ? "white" : "black") + 
+                                  " king in check");
+    }
+
+    // Check recursion depth
+    if (!incrementRecursionDepth("wouldLeaveInCheck")) {
+        // If we've exceeded max depth, conservatively assume it would leave in check
+        if (server && server->getLogger())
+        {
+            server->getLogger()->warning("ChessBoard::wouldLeaveInCheck() - Maximum recursion depth exceeded, assuming move would leave king in check");
+        }
+
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Execution time after recursion depth check: " + 
+                                    std::to_string(duration) + "ms");
+        }
+
+        decrementRecursionDepth();
+        return true;
+    }
+    
+    try {
+        // Check cache first
+        std::string cacheKey = generateCheckResultCacheKey(move, color);
+        auto cacheIt = checkResultCache.find(cacheKey);
+        if (cacheIt != checkResultCache.end()) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Cache hit for move " + 
+                                          move.toAlgebraic() + ", result: " + 
+                                          (cacheIt->second ? "would leave in check" : "would not leave in check"));
+            }
+            
+            // End timing for cache hit
+            double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Cache hit execution time: " + 
+                                        std::to_string(duration) + "ms");
+            }
+            
+            decrementRecursionDepth();
+            return cacheIt->second;
+        }
+        
+        // Create a clone of the board
+        auto tempBoard = clone();
+        
+        // Execute the move without validation
+        const Position& from = move.getFrom();
+        const Position& to = move.getTo();
+        
+        // Handle special moves
+        if (isCastlingMove(move)) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Processing castling move");
+            }
+            
+            // For castling, we need to check if the king is in check at any point during the move
+            int direction = (to.col > from.col) ? 1 : -1;
+            
+            // Check if the king is in check at the starting position
+            if (tempBoard->isInCheck(color)) {
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - King already in check, castling not allowed");
+                }
+                
+                // Cache the result
+                checkResultCache[cacheKey] = true;
+                
+                // End timing
+                double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Execution time (king already in check): " + 
+                                            std::to_string(duration) + "ms");
+                }
+                
+                decrementRecursionDepth();
+                return true;
+            }
+            
+            // Check if the king would be in check at any intermediate position
+            Position midPos(from.row, from.col + direction);
+            
+            // Move the king to the intermediate position
+            tempBoard->board[midPos.row][midPos.col] = std::move(tempBoard->board[from.row][from.col]);
+            if (tempBoard->board[midPos.row][midPos.col]) {
+                tempBoard->board[midPos.row][midPos.col]->setMoved(true);
+            }
+            
+            // Check if the king would be in check at the intermediate position
+            if (tempBoard->isInCheck(color)) {
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - King would pass through check during castling");
+                }
+                
+                // Cache the result
+                checkResultCache[cacheKey] = true;
+                
+                // End timing
+                double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+                if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                    server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Execution time (king passes through check): " + 
+                                            std::to_string(duration) + "ms");
+                }
+                
+                decrementRecursionDepth();
+                return true;
+            }
+            
+            // Move the king to the final position
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[midPos.row][midPos.col]);
+            if (tempBoard->board[to.row][to.col]) {
+                tempBoard->board[to.row][to.col]->setMoved(true);
+            }
+            
+            // Move the rook
+            int rookFromCol = (direction > 0) ? 7 : 0;
+            int rookToCol = (direction > 0) ? (to.col - 1) : (to.col + 1);
+            
+            Position rookFrom(from.row, rookFromCol);
+            Position rookTo(from.row, rookToCol);
+            tempBoard->board[rookTo.row][rookTo.col] = std::move(tempBoard->board[rookFrom.row][rookFrom.col]);
+            if (tempBoard->board[rookTo.row][rookTo.col]) {
+                tempBoard->board[rookTo.row][rookTo.col]->setMoved(true);
+            }
+            
+        } else if (isEnPassantCapture(move)) {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Processing en passant capture");
+            }
+            
+            // Move the pawn
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+            if (tempBoard->board[to.row][to.col]) {
+                tempBoard->board[to.row][to.col]->setMoved(true);
+            }
+            
+            // Remove the captured pawn
+            int captureRow = (color == PieceColor::WHITE) ? to.row - 1 : to.row + 1;
+            tempBoard->board[captureRow][to.col] = nullptr;
+            
+        } else {
+            if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+                server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Processing regular move");
+            }
+            
+            // Regular move
+            tempBoard->board[to.row][to.col] = std::move(tempBoard->board[from.row][from.col]);
+            if (tempBoard->board[to.row][to.col]) {
+                tempBoard->board[to.row][to.col]->setMoved(true);
+            }
+        }
+        
+        // Check if the king is in check after the move
+        bool result = tempBoard->isInCheck(color);
+        
+        // Cache the result
+        checkResultCache[cacheKey] = result;
+        
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Move " + 
+                                      move.toAlgebraic() + " would " + 
+                                      (result ? "leave king in check" : "not leave king in check"));
+        }
+        
+        decrementRecursionDepth();
+    
+        // End timing and log
+        double duration = PerformanceMonitor::endTimer("ChessBoard::wouldLeaveInCheck");
+        if (server && server->getLogger() && server->getLogger()->getLogLevel() >= 3) {
+            server->getLogger()->debug("ChessBoard::wouldLeaveInCheck() - Total execution time: " + 
+                                    std::to_string(duration) + "ms");
+        }
+        
+        return result;
+    
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::wouldLeaveInCheck() - Exception: " + std::string(e.what()));
+        }
+        
+        decrementRecursionDepth();
+        return true; // Conservatively assume it would leave in check
+    } catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessBoard::wouldLeaveInCheck() - Unknown exception");
+        }
+        
+        decrementRecursionDepth();        
+        return true; // Conservatively assume it would leave in check
+    }
 }
 
-std::string ChessBoard::getBoardStateString() const {
+std::string ChessBoard::generateCheckResultCacheKey(const ChessMove& move, PieceColor color) const
+{
+    // Generate a unique key for the current board state, move, and color
+    std::string key = getBoardStateString() + "_move_" + 
+                     move.toAlgebraic() + "_" +
+                     (color == PieceColor::WHITE ? "white" : "black");
+    return key;
+}
+
+std::string ChessBoard::getBoardStateString() const
+{
     std::stringstream ss;
     
     // Add piece positions
@@ -1839,10 +2997,19 @@ QJsonObject ChessGame::getGameStateJson() const
             if (board) {
                 json["currentTurn"] = (board->getCurrentTurn() == PieceColor::WHITE) ? "white" : "black";
                 
-                // Avoid deep recursion by using a simplified check for game state
-                json["isCheck"] = false;  // Set to false to avoid potential recursion
-                json["isCheckmate"] = false;
-                json["isStalemate"] = false;
+                // Add check status with proper error handling
+                try {
+                    json["isCheck"] = board->isInCheck(board->getCurrentTurn());
+                    json["isCheckmate"] = board->isInCheckmate(board->getCurrentTurn());
+                    json["isStalemate"] = board->isInStalemate(board->getCurrentTurn());
+                } catch (const std::exception& e) {
+                    json["isCheck"] = false;
+                    json["isCheckmate"] = false;
+                    json["isStalemate"] = false;
+                    if (server && server->getLogger()) {
+                        server->getLogger()->error("getGameStateJson() - Exception checking game status: " + std::string(e.what()));
+                    }
+                }
                 
                 if (server && server->getLogger()) {
                     server->getLogger()->debug("getGameStateJson() - Game " + gameId + " turn: " + 
@@ -1905,7 +3072,7 @@ QJsonObject ChessGame::getGameStateJson() const
             }
         }
         
-        // Board state - now with piece type information
+        // Board state - now with piece type information and proper orientation
         if (server && server->getLogger()) {
             server->getLogger()->debug("getGameStateJson() - Building board array for game " + gameId);
         }
@@ -1984,6 +3151,9 @@ QJsonObject ChessGame::getGameStateJson() const
         }
         json["board"] = boardArray;
         
+        // Add board orientation flag to help clients render correctly
+        json["boardOrientation"] = "standard"; // Standard orientation (white at bottom)
+        
         if (server && server->getLogger()) {
             server->getLogger()->debug("getGameStateJson() - Board array built successfully for game " + gameId);
         }
@@ -2001,6 +3171,7 @@ QJsonObject ChessGame::getGameStateJson() const
                     QJsonObject moveObj;
                     moveObj["from"] = QString::fromStdString(move.getFrom().toAlgebraic());
                     moveObj["to"] = QString::fromStdString(move.getTo().toAlgebraic());
+                    moveObj["algebraic"] = QString::fromStdString(move.toStandardNotation(*board));
                     if (move.getPromotionType() != PieceType::EMPTY) {
                         moveObj["promotion"] = [move]() -> QString {
                             switch (move.getPromotionType()) {
@@ -2154,28 +3325,101 @@ std::string ChessGame::getBoardAscii() const {
 
 std::vector<std::pair<ChessMove, double>> ChessGame::getMoveRecommendations(ChessPlayer* player) const
 {
+    MPChessServer* server = MPChessServer::getInstance();
+    
     if (!player || !board) {
+        if (server && server->getLogger()) {
+            server->getLogger()->warning("ChessGame::getMoveRecommendations() - Null player or board");
+        }
         return {};
     }
     
     try {
-        // Create an AI to generate recommendations
-        ChessAI ai(8);  // Use a high skill level for recommendations
-        
-        PieceColor color = player->getColor();
-        return ai.getMoveRecommendations(*board, color, 5);  // Get top 5 recommendations
-    } catch (const std::exception& e) {
-        // Log the error but return an empty list
-        // We don't want to crash just because recommendations failed
-        MPChessServer* server = MPChessServer::getInstance();
         if (server && server->getLogger()) {
-            server->getLogger()->error("getMoveRecommendations() - Exception: " + std::string(e.what()));
+            server->getLogger()->debug("ChessGame::getMoveRecommendations() - Generating recommendations for player " + 
+                                      player->getUsername());
+        }
+        
+        // Check if it's the player's turn
+        PieceColor playerColor = player->getColor();
+        PieceColor currentTurn = board->getCurrentTurn();
+        
+        if (playerColor != currentTurn) {
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessGame::getMoveRecommendations() - Not player's turn, returning empty list");
+            }
+            return {};
+        }
+        
+        // Use a simplified approach for recommendations to avoid deep recursion
+        std::vector<ChessMove> validMoves;
+        try {
+            validMoves = board->getAllValidMoves(playerColor);
+            
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessGame::getMoveRecommendations() - Found " + 
+                                          std::to_string(validMoves.size()) + " valid moves");
+            }
+        }
+        catch (const std::exception& e) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessGame::getMoveRecommendations() - Exception getting valid moves: " + 
+                                         std::string(e.what()));
+            }
+            return {};
+        }
+        
+        // Simple scoring for moves
+        std::vector<std::pair<ChessMove, double>> recommendations;
+        for (const ChessMove& move : validMoves) {
+            double score = 0.0;
+            
+            // Check if the move captures a piece
+            const Position& to = move.getTo();
+            const ChessPiece* capturedPiece = board->getPiece(to);
+            if (capturedPiece) {
+                // Add value for capturing pieces
+                switch (capturedPiece->getType()) {
+                    case PieceType::PAWN: score += 1.0; break;
+                    case PieceType::KNIGHT: score += 3.0; break;
+                    case PieceType::BISHOP: score += 3.25; break;
+                    case PieceType::ROOK: score += 5.0; break;
+                    case PieceType::QUEEN: score += 9.0; break;
+                    default: break;
+                }
+            }
+            
+            // Check if the move is a pawn promotion
+            if (move.getPromotionType() != PieceType::EMPTY) {
+                score += 8.0; // Heavily favor promotions
+            }
+            
+            recommendations.emplace_back(move, score);
+        }
+        
+        // Sort by score (best moves first)
+        std::sort(recommendations.begin(), recommendations.end(),
+                 [](const auto& a, const auto& b) { return a.second > b.second; });
+        
+        // Limit to top 5 recommendations
+        if (recommendations.size() > 5) {
+            recommendations.resize(5);
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessGame::getMoveRecommendations() - Returning " + 
+                                      std::to_string(recommendations.size()) + " recommendations");
+        }
+        
+        return recommendations;
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessGame::getMoveRecommendations() - Exception: " + std::string(e.what()));
         }
         return {};
     } catch (...) {
-        MPChessServer* server = MPChessServer::getInstance();
         if (server && server->getLogger()) {
-            server->getLogger()->error("getMoveRecommendations() - Unknown exception");
+            server->getLogger()->error("ChessGame::getMoveRecommendations() - Unknown exception");
         }
         return {};
     }
@@ -2535,18 +3779,137 @@ double ChessAI::evaluatePosition(const ChessBoard& board, PieceColor color) cons
     return color == PieceColor::WHITE ? score : -score;
 }
 
+double ChessAI::quickEvaluateMove(const ChessBoard& board, const ChessMove& move, PieceColor color) const
+{
+    MPChessServer* server = MPChessServer::getInstance();
+    double score = 0.0;
+    
+    try {
+        const Position& from = move.getFrom();
+        const Position& to = move.getTo();
+        
+        // Get the moving piece
+        const ChessPiece* piece = board.getPiece(from);
+        if (!piece) return 0.0;
+        
+        // 1. Material value of captured piece
+        const ChessPiece* capturedPiece = board.getPiece(to);
+        if (capturedPiece) {
+            switch (capturedPiece->getType()) {
+                case PieceType::PAWN:   score += 1.0; break;
+                case PieceType::KNIGHT: score += 3.0; break;
+                case PieceType::BISHOP: score += 3.25; break;
+                case PieceType::ROOK:   score += 5.0; break;
+                case PieceType::QUEEN:  score += 9.0; break;
+                default: break;
+            }
+        }
+        
+        // 2. Pawn promotion value
+        if (piece->getType() == PieceType::PAWN) {
+            if ((color == PieceColor::WHITE && to.row == 7) || 
+                (color == PieceColor::BLACK && to.row == 0)) {
+                score += 9.0; // Value of a queen
+            }
+        }
+        
+        // 3. Center control bonus
+        if ((to.row >= 3 && to.row <= 4) && (to.col >= 3 && to.col <= 4)) {
+            score += 0.3;
+        }
+        
+        // 4. Development bonus in opening
+        if (board.getMoveHistory().size() < 10) {
+            if (piece->getType() == PieceType::KNIGHT || piece->getType() == PieceType::BISHOP) {
+                score += 0.2;
+            }
+        }
+        
+        // 5. King safety in opening/middlegame
+        if (piece->getType() == PieceType::KING && board.getMoveHistory().size() < 20) {
+            // Penalize early king movement
+            score -= 0.5;
+        }
+        
+        // 6. Castling bonus
+        if (piece->getType() == PieceType::KING && !piece->hasMoved()) {
+            if (std::abs(to.col - from.col) == 2) {
+                score += 1.0; // Bonus for castling
+            }
+        }
+        
+        // 7. Pawn advancement
+        if (piece->getType() == PieceType::PAWN) {
+            if (color == PieceColor::WHITE) {
+                score += 0.05 * to.row; // Bonus for advancing white pawns
+            } else {
+                score += 0.05 * (7 - to.row); // Bonus for advancing black pawns
+            }
+        }
+        
+        // 8. Mobility (simplified)
+        // Just count the number of squares the piece can move to from the destination
+        auto tempBoard = board.clone();
+        tempBoard->movePiece(move, true); // Just validate, don't actually move
+        
+        const ChessPiece* movedPiece = tempBoard->getPiece(to);
+        if (movedPiece) {
+            std::vector<Position> possibleMoves = movedPiece->getPossibleMoves(to, *tempBoard);
+            score += 0.05 * possibleMoves.size();
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessAI::quickEvaluateMove() - Move " + move.toAlgebraic() + 
+                                      " evaluated to " + std::to_string(score));
+        }
+        
+        return score;
+    } catch (const std::exception& e) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessAI::quickEvaluateMove() - Exception: " + std::string(e.what()));
+        }
+        return 0.0;
+    } catch (...) {
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessAI::quickEvaluateMove() - Unknown exception");
+        }
+        return 0.0;
+    }
+}
+
+/*
 std::vector<std::pair<ChessMove, double>> ChessAI::getMoveRecommendations(
     const ChessBoard& board, PieceColor color, int maxRecommendations)
 {
     std::vector<std::pair<ChessMove, double>> recommendations;
     
     try {
-        // Get all valid moves for the current color
-        std::vector<ChessMove> validMoves = board.getAllValidMoves(color);
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessAI::getMoveRecommendations() - Generating recommendations for " + 
+                                      std::string(color == PieceColor::WHITE ? "white" : "black"));
+        }
         
-        // Simple evaluation without creating new boards
+        // Get all valid moves for the current color
+        std::vector<ChessMove> validMoves;
+        try {
+            validMoves = board.getAllValidMoves(color);
+            
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessAI::getMoveRecommendations() - Found " + 
+                                          std::to_string(validMoves.size()) + " valid moves");
+            }
+        }
+        catch (const std::exception& e) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessAI::getMoveRecommendations() - Exception getting valid moves: " + 
+                                         std::string(e.what()));
+            }
+            return recommendations;
+        }
+        
+        // Use a simplified evaluation for each move
         for (const ChessMove& move : validMoves) {
-            // Use a simplified evaluation that doesn't create new boards
             double score = 0.0;
             
             // Check if the move captures a piece
@@ -2586,6 +3949,12 @@ std::vector<std::pair<ChessMove, double>> ChessAI::getMoveRecommendations(
                         score += 0.1 * (7 - to.row); // Bonus for advancing black pawns
                     }
                 }
+                
+                // Development bonus for knights and bishops in opening
+                if ((piece->getType() == PieceType::KNIGHT || piece->getType() == PieceType::BISHOP) && 
+                    board.getMoveHistory().size() < 10) {
+                    score += 0.3;
+                }
             }
             
             recommendations.emplace_back(move, score);
@@ -2599,10 +3968,85 @@ std::vector<std::pair<ChessMove, double>> ChessAI::getMoveRecommendations(
         if (recommendations.size() > maxRecommendations) {
             recommendations.resize(maxRecommendations);
         }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessAI::getMoveRecommendations() - Generated " + 
+                                      std::to_string(recommendations.size()) + " recommendations");
+        }
     } catch (const std::exception& e) {
         MPChessServer* server = MPChessServer::getInstance();
         if (server && server->getLogger()) {
-            server->getLogger()->error("getMoveRecommendations() - Exception: " + std::string(e.what()));
+            server->getLogger()->error("ChessAI::getMoveRecommendations() - Exception: " + std::string(e.what()));
+        }
+    } catch (...) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessAI::getMoveRecommendations() - Unknown exception");
+        }
+    }
+    
+    return recommendations;
+}
+*/
+
+std::vector<std::pair<ChessMove, double>> ChessAI::getMoveRecommendations(
+    const ChessBoard& board, PieceColor color, int maxRecommendations)
+{
+    std::vector<std::pair<ChessMove, double>> recommendations;
+    
+    try {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessAI::getMoveRecommendations() - Generating recommendations for " + 
+                                      std::string(color == PieceColor::WHITE ? "white" : "black"));
+        }
+        
+        // Get all valid moves for the current color
+        std::vector<ChessMove> validMoves;
+        try {
+            validMoves = board.getAllValidMoves(color);
+            
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("ChessAI::getMoveRecommendations() - Found " + 
+                                          std::to_string(validMoves.size()) + " valid moves");
+            }
+        }
+        catch (const std::exception& e) {
+            if (server && server->getLogger()) {
+                server->getLogger()->error("ChessAI::getMoveRecommendations() - Exception getting valid moves: " + 
+                                         std::string(e.what()));
+            }
+            return recommendations;
+        }
+        
+        // Use quick evaluation for each move
+        for (const ChessMove& move : validMoves) {
+            double score = quickEvaluateMove(board, move, color);
+            recommendations.emplace_back(move, score);
+        }
+        
+        // Sort by score (best moves first)
+        std::sort(recommendations.begin(), recommendations.end(),
+                 [](const auto& a, const auto& b) { return a.second > b.second; });
+        
+        // Limit to requested number of recommendations
+        if (recommendations.size() > maxRecommendations) {
+            recommendations.resize(maxRecommendations);
+        }
+        
+        if (server && server->getLogger()) {
+            server->getLogger()->debug("ChessAI::getMoveRecommendations() - Returning " + 
+                                      std::to_string(recommendations.size()) + " recommendations");
+        }
+    } catch (const std::exception& e) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessAI::getMoveRecommendations() - Exception: " + std::string(e.what()));
+        }
+    } catch (...) {
+        MPChessServer* server = MPChessServer::getInstance();
+        if (server && server->getLogger()) {
+            server->getLogger()->error("ChessAI::getMoveRecommendations() - Unknown exception");
         }
     }
     
@@ -4133,7 +5577,17 @@ MPChessServer::MPChessServer(QObject* parent, const std::string& stockfishPath) 
     // Initialize logger
     logger = std::make_unique<ChessLogger>(getLogsPath() + "/server.log");
     logger->setLogLevel(3);  // Increase log level for more detailed logging
-    
+
+    // Initialize thread pool
+    threadPool = new QThreadPool(this);
+    threadPool->setMaxThreadCount(4); // Adjust based on your server's capabilities
+    logger->log("Thread pool initialized with " + std::to_string(threadPool->maxThreadCount()) + " threads");
+
+    // Initialize performance timer
+    performanceTimer = new QTimer(this);
+    connect(performanceTimer, &QTimer::timeout, this, &MPChessServer::logPerformanceStats);
+    performanceTimer->start(300000); // Log every 5 minutes
+
     // Initialize authenticator
     authenticator = std::make_unique<ChessAuthenticator>(getPlayerDataPath());
     
@@ -4184,11 +5638,18 @@ MPChessServer::~MPChessServer()
     logger->log("MPChessServer shutting down");
     
     stop();
-    
+
+    // Wait for thread pool to finish
+    threadPool->waitForDone();
+
     delete matchmakingTimer;
     delete gameTimer;
     delete statusTimer;
     delete leaderboardTimer;
+    delete performanceTimer;
+    
+    // Log final performance stats
+    logPerformanceStats();
     
     // Clear the singleton instance if this is the current instance
     if (mpChessServerInstance == this) {
@@ -4196,6 +5657,17 @@ MPChessServer::~MPChessServer()
     }
     
     logger->log("MPChessServer destroyed");
+}
+
+void MPChessServer::logPerformanceStats()
+{
+    if (logger && logger->getLogLevel() >= 2) {
+        std::string stats = PerformanceMonitor::getStatsSummary();
+        logger->log("Performance Statistics:\n" + stats);
+        
+        // Reset stats after logging if desired
+        // PerformanceMonitor::resetStats();
+    }
 }
 
 bool MPChessServer::isPlayerInGame(ChessPlayer* player) const
@@ -4317,6 +5789,179 @@ QJsonObject MPChessServer::getServerStats() const
     stats["playersInMatchmaking"] = matchmaker->getQueueSize();
     
     return stats;
+}
+
+QString MPChessServer::getBoardOrientationForPlayer(ChessPlayer* player, const std::string& gameId) const
+{
+    if (!player) {
+        logger->error("getBoardOrientationForPlayer() - Null player");
+        return "standard";
+    }
+    
+    auto it = activeGames.find(gameId);
+    if (it == activeGames.end()) {
+        logger->error("getBoardOrientationForPlayer() - Game not found: " + gameId);
+        return "standard";
+    }
+    
+    ChessGame* game = it->second.get();
+    if (!game) {
+        logger->error("getBoardOrientationForPlayer() - Null game object for ID: " + gameId);
+        return "standard";
+    }
+    
+    // White player sees the board in standard orientation (white at bottom)
+    // Black player sees the board flipped (black at bottom)
+    if (player == game->getWhitePlayer()) {
+        return "standard";
+    } else if (player == game->getBlackPlayer()) {
+        return "flipped";
+    } else {
+        logger->warning("getBoardOrientationForPlayer() - Player " + player->getUsername() + 
+                       " is not part of game " + gameId);
+        return "standard";
+    }
+}
+
+void MPChessServer::sendGameStateToPlayers(const std::string& gameId)
+{
+    auto it = activeGames.find(gameId);
+    if (it == activeGames.end()) {
+        logger->error("sendGameStateToPlayers() - Game not found: " + gameId);
+        return;
+    }
+    
+    ChessGame* game = it->second.get();
+    if (!game) {
+        logger->error("sendGameStateToPlayers() - Null game object for ID: " + gameId);
+        return;
+    }
+    
+    ChessPlayer* whitePlayer = game->getWhitePlayer();
+    ChessPlayer* blackPlayer = game->getBlackPlayer();
+    
+    if (!whitePlayer || !blackPlayer) {
+        logger->error("sendGameStateToPlayers() - Null player(s) in game " + gameId);
+        return;
+    }
+    
+    try {
+        logger->debug("sendGameStateToPlayers() - Preparing game state messages for game " + gameId);
+        
+        // Get the base game state
+        QJsonObject baseGameState = game->getGameStateJson();
+        
+        // Create white player's game state message
+        QJsonObject whiteGameStateMessage;
+        whiteGameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+        whiteGameStateMessage["gameState"] = baseGameState;
+        whiteGameStateMessage["gameState"].toObject()["boardOrientation"] = "standard";
+        
+        // Create black player's game state message
+        QJsonObject blackGameStateMessage;
+        blackGameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+        blackGameStateMessage["gameState"] = baseGameState;
+        blackGameStateMessage["gameState"].toObject()["boardOrientation"] = "flipped";
+        
+        if (whitePlayer->getSocket()) {
+            logger->debug("sendGameStateToPlayers() - Sending game state to white player: " + whitePlayer->getUsername());
+            sendMessage(whitePlayer->getSocket(), whiteGameStateMessage);
+        } else {
+            logger->warning("sendGameStateToPlayers() - White player has no socket: " + whitePlayer->getUsername());
+        }
+        
+        if (blackPlayer->getSocket()) {
+            logger->debug("sendGameStateToPlayers() - Sending game state to black player: " + blackPlayer->getUsername());
+            sendMessage(blackPlayer->getSocket(), blackGameStateMessage);
+        } else {
+            logger->warning("sendGameStateToPlayers() - Black player has no socket: " + blackPlayer->getUsername());
+        }
+        
+        logger->debug("sendGameStateToPlayers() - Game state sent successfully for game " + gameId);
+    } catch (const std::exception& e) {
+        logger->error("sendGameStateToPlayers() - Exception: " + std::string(e.what()));
+    } catch (...) {
+        logger->error("sendGameStateToPlayers() - Unknown exception");
+    }
+}
+
+void MPChessServer::generateMoveRecommendationsAsync(const std::string& gameId, ChessPlayer* player)
+{
+    if (!player) {
+        logger->error("generateMoveRecommendationsAsync() - Null player");
+        return;
+    }
+    
+    auto it = activeGames.find(gameId);
+    if (it == activeGames.end()) {
+        logger->error("generateMoveRecommendationsAsync() - Game not found: " + gameId);
+        return;
+    }
+    
+    ChessGame* game = it->second.get();
+    if (!game) {
+        logger->error("generateMoveRecommendationsAsync() - Null game object for ID: " + gameId);
+        return;
+    }
+    
+    // Check if it's the player's turn
+    if (game->getCurrentPlayer() != player) {
+        logger->debug("generateMoveRecommendationsAsync() - Not player's turn, skipping recommendations");
+        return;
+    }
+    
+    logger->debug("generateMoveRecommendationsAsync() - Starting async recommendation generation for game " + gameId);
+    
+    // Create a task for recommendation generation
+    MoveRecommendationTask* task = new MoveRecommendationTask(
+        *game->getBoard(), player->getColor(), 5, analysisEngine.get());
+    
+    // Connect to the task's signal
+    connect(task, &MoveRecommendationTask::recommendationsReady, 
+            this, [this, gameId, player](const std::vector<std::pair<ChessMove, double>>& recommendations) {
+        
+        logger->debug("Async recommendations ready for game " + gameId);
+        
+        // Check if the player is still connected and in the same game
+        if (!player->getSocket() || !playerToGameId.contains(player) || playerToGameId[player] != gameId) {
+            logger->debug("Player disconnected or changed games, discarding recommendations");
+            return;
+        }
+        
+        // Send recommendations to the player
+        QJsonObject recommendationsMessage;
+        recommendationsMessage["type"] = static_cast<int>(MessageType::MOVE_RECOMMENDATIONS);
+        
+        QJsonArray recommendationsArray;
+        for (const auto& [move, evaluation] : recommendations) {
+            QJsonObject recObj;
+            recObj["move"] = QString::fromStdString(move.toAlgebraic());
+            recObj["evaluation"] = evaluation;
+            
+            // Get the standard notation if possible
+            auto gameIt = activeGames.find(gameId);
+            if (gameIt != activeGames.end() && gameIt->second) {
+                recObj["standardNotation"] = QString::fromStdString(
+                    move.toStandardNotation(*gameIt->second->getBoard()));
+            } else {
+                recObj["standardNotation"] = QString::fromStdString(move.toAlgebraic());
+            }
+            
+            recommendationsArray.append(recObj);
+        }
+        
+        recommendationsMessage["recommendations"] = recommendationsArray;
+        sendMessage(player->getSocket(), recommendationsMessage);
+        
+        // Remove the task from the map
+        recommendationTasks.remove(gameId);
+    });
+    
+    // Store the task in the map
+    recommendationTasks[gameId] = task;
+    
+    // Start the task
+    threadPool->start(task);
 }
 
 void MPChessServer::handleNewConnection()
@@ -4670,6 +6315,7 @@ void MPChessServer::sendMessage(QTcpSocket* socket, const QJsonObject& message) 
     socket->flush();
 }
 
+/*
 std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2, TimeControlType timeControl)
 {
     if (!player1 || !player2) {
@@ -4798,12 +6444,33 @@ std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2
             // Continue despite error in sending game state
         }
         
-        // Send move recommendations to white player (first to move)
+        // Send move recommendations to white player (first to move) asynchronously
         if (whitePlayer->getSocket()) {
             try {
-                logger->debug("createGame() - Generating move recommendations for white player in game " + gameId);
-                std::vector<std::pair<ChessMove, double>> recommendations = 
-                    activeGames[gameId]->getMoveRecommendations(whitePlayer);
+                logger->debug("createGame() - Scheduling async move recommendations for white player in game " + gameId);
+                generateMoveRecommendationsAsync(gameId, whitePlayer);
+            } catch (const std::exception& e) {
+                logger->error("createGame() - Exception scheduling move recommendations for game " + gameId + ": " + std::string(e.what()));
+                // Continue despite error in recommendations
+            }
+        }
+/ *
+        // Send move recommendations to white player (first to move) - SIMPLIFIED VERSION
+        if (whitePlayer->getSocket()) {
+            try {
+                logger->debug("createGame() - Generating simplified move recommendations for white player in game " + gameId);
+                
+                // Get valid moves directly from the board
+                std::vector<ChessMove> validMoves = activeGames[gameId]->getBoard()->getAllValidMoves(PieceColor::WHITE);
+                
+                // Take just the first few moves without deep evaluation
+                std::vector<std::pair<ChessMove, double>> recommendations;
+                int count = 0;
+                for (const auto& move : validMoves) {
+                    recommendations.emplace_back(move, 0.0);
+                    count++;
+                    if (count >= 5) break;
+                }
                 
                 QJsonObject recommendationsMessage;
                 recommendationsMessage["type"] = static_cast<int>(MessageType::MOVE_RECOMMENDATIONS);
@@ -4823,6 +6490,342 @@ std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2
                 sendMessage(whitePlayer->getSocket(), recommendationsMessage);
             } catch (const std::exception& e) {
                 logger->error("createGame() - Exception generating move recommendations for game " + gameId + ": " + std::string(e.what()));
+                // Continue despite error in recommendations
+            }
+        }
+// * /
+        
+        // Log the game creation
+        logger->log("Created game " + gameId + ": " + whitePlayer->getUsername() + 
+                   " (White) vs " + blackPlayer->getUsername() + " (Black)");
+        
+        // Increment total games played
+        totalGamesPlayed++;
+
+        // Make sure to remove players from matchmaking queue if they're still there
+        matchmaker->removePlayer(player1);
+        matchmaker->removePlayer(player2);
+        
+        return gameId;
+    } catch (const std::exception& e) {
+        logger->error("createGame() - Exception in createGame: " + std::string(e.what()));
+        throw;
+    } catch (...) {
+        logger->error("createGame() - Unknown exception in createGame");
+        throw std::runtime_error("Unknown error creating game");
+    }
+}
+*/
+
+/*
+std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2, TimeControlType timeControl)
+{
+    if (!player1 || !player2) {
+        logger->error("createGame() - Attempted to create game with null player(s)");
+        throw std::invalid_argument("Null player(s) provided to createGame");
+    }
+
+    // Check if either player is already in a game
+    if (isPlayerInGame(player1)) {
+        logger->error("createGame() - Player " + player1->getUsername() + " is already in a game");
+        throw std::runtime_error("Player " + player1->getUsername() + " is already in a game");
+    }
+    
+    if (isPlayerInGame(player2)) {
+        logger->error("createGame() - Player " + player2->getUsername() + " is already in a game");
+        throw std::runtime_error("Player " + player2->getUsername() + " is already in a game");
+    }
+    
+    logger->debug("createGame() - Creating game between " + player1->getUsername() + " and " + player2->getUsername());
+    
+    try {
+        // Generate a unique game ID
+        std::string gameId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        logger->debug("createGame() - Generated game ID: " + gameId);
+        
+        // Randomly assign colors
+        bool player1IsWhite = QRandomGenerator::global()->bounded(2) == 0;
+        ChessPlayer* whitePlayer = player1IsWhite ? player1 : player2;
+        ChessPlayer* blackPlayer = player1IsWhite ? player2 : player1;
+        
+        logger->debug("createGame() - Assigned colors: " + whitePlayer->getUsername() + " (White), " + 
+                     blackPlayer->getUsername() + " (Black)");
+        
+        // Set player colors before creating the game
+        whitePlayer->setColor(PieceColor::WHITE);
+        blackPlayer->setColor(PieceColor::BLACK);
+        
+        // Create the game with try-catch
+        std::unique_ptr<ChessGame> game;
+        try {
+            logger->debug("createGame() - Constructing ChessGame object for game " + gameId);
+            game = std::make_unique<ChessGame>(whitePlayer, blackPlayer, gameId, timeControl);
+            logger->debug("createGame() - ChessGame object created successfully for game " + gameId);
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception creating ChessGame for game " + gameId + ": " + std::string(e.what()));
+            throw;
+        } catch (...) {
+            logger->error("createGame() - Unknown exception creating ChessGame for game " + gameId);
+            throw std::runtime_error("Unknown error creating game");
+        }
+        
+        // Start the game with try-catch
+        try {
+            logger->debug("createGame() - Starting game " + gameId);
+            game->start();
+            logger->debug("createGame() - Game " + gameId + " started successfully");
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception starting game " + gameId + ": " + std::string(e.what()));
+            throw;
+        } catch (...) {
+            logger->error("createGame() - Unknown exception starting game " + gameId);
+            throw std::runtime_error("Unknown error starting game");
+        }
+        
+        // Store the game
+        logger->debug("createGame() - Storing game " + gameId + " in active games map");
+        activeGames[gameId] = std::move(game);
+        playerToGameId[whitePlayer] = gameId;
+        playerToGameId[blackPlayer] = gameId;
+        
+        // Send game start message to both players
+        logger->debug("createGame() - Preparing game start messages for game " + gameId);
+        
+        // White player message
+        QJsonObject whiteMessage;
+        whiteMessage["type"] = static_cast<int>(MessageType::GAME_START);
+        whiteMessage["gameId"] = QString::fromStdString(gameId);
+        whiteMessage["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
+        whiteMessage["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
+        whiteMessage["yourColor"] = "white";
+        whiteMessage["boardOrientation"] = "standard"; // White pieces at bottom
+        whiteMessage["timeControl"] = [timeControl]() -> QString {
+            switch (timeControl) {
+                case TimeControlType::RAPID: return "rapid";
+                case TimeControlType::BLITZ: return "blitz";
+                case TimeControlType::BULLET: return "bullet";
+                case TimeControlType::CLASSICAL: return "classical";
+                case TimeControlType::CASUAL: return "casual";
+                default: return "rapid";
+            }
+        }();
+        
+        // Black player message
+        QJsonObject blackMessage;
+        blackMessage["type"] = static_cast<int>(MessageType::GAME_START);
+        blackMessage["gameId"] = QString::fromStdString(gameId);
+        blackMessage["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
+        blackMessage["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
+        blackMessage["yourColor"] = "black";
+        blackMessage["boardOrientation"] = "flipped"; // Black pieces at bottom
+        blackMessage["timeControl"] = whiteMessage["timeControl"];
+        
+        if (whitePlayer->getSocket()) {
+            logger->debug("createGame() - Sending game start message to white player: " + whitePlayer->getUsername());
+            sendMessage(whitePlayer->getSocket(), whiteMessage);
+        } else {
+            logger->warning("createGame() - White player has no socket: " + whitePlayer->getUsername());
+        }
+        
+        if (blackPlayer->getSocket()) {
+            logger->debug("createGame() - Sending game start message to black player: " + blackPlayer->getUsername());
+            sendMessage(blackPlayer->getSocket(), blackMessage);
+        } else {
+            logger->warning("createGame() - Black player has no socket: " + blackPlayer->getUsername());
+        }
+        
+        // Send initial game state
+        try {
+            logger->debug("createGame() - Preparing initial game state message for game " + gameId);
+            
+            // Get the base game state
+            QJsonObject baseGameState = activeGames[gameId]->getGameStateJson();
+            
+            // Create white player's game state
+            QJsonObject whiteGameStateMessage;
+            whiteGameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+            whiteGameStateMessage["gameState"] = baseGameState;
+            whiteGameStateMessage["gameState"].toObject()["boardOrientation"] = "standard";
+            
+            // Create black player's game state
+            QJsonObject blackGameStateMessage;
+            blackGameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+            blackGameStateMessage["gameState"] = baseGameState;
+            blackGameStateMessage["gameState"].toObject()["boardOrientation"] = "flipped";
+            
+            if (whitePlayer->getSocket()) {
+                logger->debug("createGame() - Sending game state to white player: " + whitePlayer->getUsername());
+                sendMessage(whitePlayer->getSocket(), whiteGameStateMessage);
+            }
+            
+            if (blackPlayer->getSocket()) {
+                logger->debug("createGame() - Sending game state to black player: " + blackPlayer->getUsername());
+                sendMessage(blackPlayer->getSocket(), blackGameStateMessage);
+            }
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception sending game state for game " + gameId + ": " + std::string(e.what()));
+            // Continue despite error in sending game state
+        }
+        
+        // Send move recommendations to white player (first to move) asynchronously
+        if (whitePlayer->getSocket()) {
+            try {
+                logger->debug("createGame() - Scheduling async move recommendations for white player in game " + gameId);
+                generateMoveRecommendationsAsync(gameId, whitePlayer);
+            } catch (const std::exception& e) {
+                logger->error("createGame() - Exception scheduling move recommendations for game " + gameId + ": " + std::string(e.what()));
+                // Continue despite error in recommendations
+            }
+        }
+        
+        // Log the game creation
+        logger->log("Created game " + gameId + ": " + whitePlayer->getUsername() + 
+                   " (White) vs " + blackPlayer->getUsername() + " (Black)");
+        
+        // Increment total games played
+        totalGamesPlayed++;
+
+        // Make sure to remove players from matchmaking queue if they're still there
+        matchmaker->removePlayer(player1);
+        matchmaker->removePlayer(player2);
+        
+        return gameId;
+    } catch (const std::exception& e) {
+        logger->error("createGame() - Exception in createGame: " + std::string(e.what()));
+        throw;
+    } catch (...) {
+        logger->error("createGame() - Unknown exception in createGame");
+        throw std::runtime_error("Unknown error creating game");
+    }
+}
+*/
+
+std::string MPChessServer::createGame(ChessPlayer* player1, ChessPlayer* player2, TimeControlType timeControl)
+{
+    if (!player1 || !player2) {
+        logger->error("createGame() - Attempted to create game with null player(s)");
+        throw std::invalid_argument("Null player(s) provided to createGame");
+    }
+
+    // Check if either player is already in a game
+    if (isPlayerInGame(player1)) {
+        logger->error("createGame() - Player " + player1->getUsername() + " is already in a game");
+        throw std::runtime_error("Player " + player1->getUsername() + " is already in a game");
+    }
+    
+    if (isPlayerInGame(player2)) {
+        logger->error("createGame() - Player " + player2->getUsername() + " is already in a game");
+        throw std::runtime_error("Player " + player2->getUsername() + " is already in a game");
+    }
+    
+    logger->debug("createGame() - Creating game between " + player1->getUsername() + " and " + player2->getUsername());
+    
+    try {
+        // Generate a unique game ID
+        std::string gameId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        logger->debug("createGame() - Generated game ID: " + gameId);
+        
+        // Randomly assign colors
+        bool player1IsWhite = QRandomGenerator::global()->bounded(2) == 0;
+        ChessPlayer* whitePlayer = player1IsWhite ? player1 : player2;
+        ChessPlayer* blackPlayer = player1IsWhite ? player2 : player1;
+        
+        logger->debug("createGame() - Assigned colors: " + whitePlayer->getUsername() + " (White), " + 
+                     blackPlayer->getUsername() + " (Black)");
+        
+        // Set player colors before creating the game
+        whitePlayer->setColor(PieceColor::WHITE);
+        blackPlayer->setColor(PieceColor::BLACK);
+        
+        // Create the game with try-catch
+        std::unique_ptr<ChessGame> game;
+        try {
+            logger->debug("createGame() - Constructing ChessGame object for game " + gameId);
+            game = std::make_unique<ChessGame>(whitePlayer, blackPlayer, gameId, timeControl);
+            logger->debug("createGame() - ChessGame object created successfully for game " + gameId);
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception creating ChessGame for game " + gameId + ": " + std::string(e.what()));
+            throw;
+        } catch (...) {
+            logger->error("createGame() - Unknown exception creating ChessGame for game " + gameId);
+            throw std::runtime_error("Unknown error creating game");
+        }
+        
+        // Start the game with try-catch
+        try {
+            logger->debug("createGame() - Starting game " + gameId);
+            game->start();
+            logger->debug("createGame() - Game " + gameId + " started successfully");
+        } catch (const std::exception& e) {
+            logger->error("createGame() - Exception starting game " + gameId + ": " + std::string(e.what()));
+            throw;
+        } catch (...) {
+            logger->error("createGame() - Unknown exception starting game " + gameId);
+            throw std::runtime_error("Unknown error starting game");
+        }
+        
+        // Store the game
+        logger->debug("createGame() - Storing game " + gameId + " in active games map");
+        activeGames[gameId] = std::move(game);
+        playerToGameId[whitePlayer] = gameId;
+        playerToGameId[blackPlayer] = gameId;
+        
+        // Send game start message to both players
+        logger->debug("createGame() - Preparing game start messages for game " + gameId);
+        
+        // White player message
+        QJsonObject whiteMessage;
+        whiteMessage["type"] = static_cast<int>(MessageType::GAME_START);
+        whiteMessage["gameId"] = QString::fromStdString(gameId);
+        whiteMessage["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
+        whiteMessage["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
+        whiteMessage["yourColor"] = "white";
+        whiteMessage["boardOrientation"] = "standard"; // White pieces at bottom
+        whiteMessage["timeControl"] = [timeControl]() -> QString {
+            switch (timeControl) {
+                case TimeControlType::RAPID: return "rapid";
+                case TimeControlType::BLITZ: return "blitz";
+                case TimeControlType::BULLET: return "bullet";
+                case TimeControlType::CLASSICAL: return "classical";
+                case TimeControlType::CASUAL: return "casual";
+                default: return "rapid";
+            }
+        }();
+        
+        // Black player message
+        QJsonObject blackMessage;
+        blackMessage["type"] = static_cast<int>(MessageType::GAME_START);
+        blackMessage["gameId"] = QString::fromStdString(gameId);
+        blackMessage["whitePlayer"] = QString::fromStdString(whitePlayer->getUsername());
+        blackMessage["blackPlayer"] = QString::fromStdString(blackPlayer->getUsername());
+        blackMessage["yourColor"] = "black";
+        blackMessage["boardOrientation"] = "flipped"; // Black pieces at bottom
+        blackMessage["timeControl"] = whiteMessage["timeControl"];
+        
+        if (whitePlayer->getSocket()) {
+            logger->debug("createGame() - Sending game start message to white player: " + whitePlayer->getUsername());
+            sendMessage(whitePlayer->getSocket(), whiteMessage);
+        } else {
+            logger->warning("createGame() - White player has no socket: " + whitePlayer->getUsername());
+        }
+        
+        if (blackPlayer->getSocket()) {
+            logger->debug("createGame() - Sending game start message to black player: " + blackPlayer->getUsername());
+            sendMessage(blackPlayer->getSocket(), blackMessage);
+        } else {
+            logger->warning("createGame() - Black player has no socket: " + blackPlayer->getUsername());
+        }
+        
+        // Send initial game state to both players
+        sendGameStateToPlayers(gameId);
+        
+        // Send move recommendations to white player (first to move) asynchronously
+        if (whitePlayer->getSocket()) {
+            try {
+                logger->debug("createGame() - Scheduling async move recommendations for white player in game " + gameId);
+                generateMoveRecommendationsAsync(gameId, whitePlayer);
+            } catch (const std::exception& e) {
+                logger->error("createGame() - Exception scheduling move recommendations for game " + gameId + ": " + std::string(e.what()));
                 // Continue despite error in recommendations
             }
         }
@@ -4997,7 +7000,9 @@ void MPChessServer::processAuthRequest(QTcpSocket* socket, const QJsonObject& da
     sendMessage(socket, response);
 }
 
-void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& data) {
+/*
+void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& data)
+{
     ChessPlayer* player = socketToPlayer.value(socket, nullptr);
     if (!player) {
         logger->error("Move request from unauthenticated socket");
@@ -5056,6 +7061,7 @@ void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& da
                     sendMessage(blackPlayer->getSocket(), gameStateMessage);
                 }
                 
+/ *
                 // Send move recommendations to the next player
                 ChessPlayer* nextPlayer = game->getCurrentPlayer();
                 if (nextPlayer && nextPlayer->getSocket() && !game->isOver()) {
@@ -5078,7 +7084,271 @@ void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& da
                     recommendationsMessage["recommendations"] = recommendationsArray;
                     sendMessage(nextPlayer->getSocket(), recommendationsMessage);
                 }
+* /
+
+                // Send move recommendations to the next player asynchronously
+                ChessPlayer* nextPlayer = game->getCurrentPlayer();
+                if (nextPlayer && nextPlayer->getSocket() && !game->isOver()) {
+                    try {
+                        generateMoveRecommendationsAsync(gameId, nextPlayer);
+                    } catch (const std::exception& e) {
+                        logger->error("processMoveRequest() - Exception scheduling move recommendations: " + std::string(e.what()));
+                    }
+                }
+
+                // If the game is over, update ratings and save history
+                if (game->isOver()) {
+                    updatePlayerRatings(game);
+                    saveGameHistory(*game);
+                }
+            }
+            break;
+            
+        case MoveValidationStatus::INVALID_PIECE:
+            response["success"] = false;
+            response["message"] = "No piece at the source position";
+            break;
+            
+        case MoveValidationStatus::INVALID_DESTINATION:
+            response["success"] = false;
+            response["message"] = "Invalid destination";
+            break;
+            
+        case MoveValidationStatus::INVALID_PATH:
+            response["success"] = false;
+            response["message"] = "Invalid move for this piece";
+            break;
+            
+        case MoveValidationStatus::KING_IN_CHECK:
+            response["success"] = false;
+            response["message"] = "Move would leave your king in check";
+            break;
+            
+        case MoveValidationStatus::WRONG_TURN:
+            response["success"] = false;
+            response["message"] = "It's not your turn";
+            break;
+            
+        case MoveValidationStatus::GAME_OVER:
+            response["success"] = false;
+            response["message"] = "The game is already over";
+            break;
+            
+        default:
+            response["success"] = false;
+            response["message"] = "Unknown error";
+            break;
+    }
+    
+    sendMessage(socket, response);
+    
+    // Log the move
+    if (status == MoveValidationStatus::VALID) {
+        logger->log("Player " + player->getUsername() + " made move " + moveStr + 
+                   " in game " + gameId);
+    } else {
+        logger->warning("Player " + player->getUsername() + " attempted invalid move " + 
+                       moveStr + " in game " + gameId + ": " + response["message"].toString().toStdString());
+    }
+}
+*/
+
+/*
+void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& data)
+{
+    ChessPlayer* player = socketToPlayer.value(socket, nullptr);
+    if (!player) {
+        logger->error("Move request from unauthenticated socket");
+        return;
+    }
+    
+    std::string gameId = data["gameId"].toString().toStdString();
+    std::string moveStr = data["move"].toString().toStdString();
+    
+    // Find the game
+    auto it = activeGames.find(gameId);
+    if (it == activeGames.end()) {
+        logger->error("Move request for non-existent game: " + gameId);
+        
+        QJsonObject response;
+        response["type"] = static_cast<int>(MessageType::MOVE_RESULT);
+        response["success"] = false;
+        response["message"] = "Game not found";
+        sendMessage(socket, response);
+        return;
+    }
+    
+    ChessGame* game = it->second.get();
+    
+    // Parse the move
+    ChessMove move = ChessMove::fromAlgebraic(moveStr);
+    
+    // Process the move
+    MoveValidationStatus status = game->processMove(player, move);
+    
+    // Prepare response
+    QJsonObject response;
+    response["type"] = static_cast<int>(MessageType::MOVE_RESULT);
+    
+    switch (status) {
+        case MoveValidationStatus::VALID:
+            response["success"] = true;
+            
+            // Increment total moves played
+            totalMovesPlayed++;
+            
+            // Send updated game state to both players with proper orientation
+            {
+                ChessPlayer* whitePlayer = game->getWhitePlayer();
+                ChessPlayer* blackPlayer = game->getBlackPlayer();
                 
+                // Get the base game state
+                QJsonObject baseGameState = game->getGameStateJson();
+                
+                // Create white player's game state message
+                QJsonObject whiteGameStateMessage;
+                whiteGameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+                whiteGameStateMessage["gameState"] = baseGameState;
+                whiteGameStateMessage["gameState"].toObject()["boardOrientation"] = "standard";
+                
+                // Create black player's game state message
+                QJsonObject blackGameStateMessage;
+                blackGameStateMessage["type"] = static_cast<int>(MessageType::GAME_STATE);
+                blackGameStateMessage["gameState"] = baseGameState;
+                blackGameStateMessage["gameState"].toObject()["boardOrientation"] = "flipped";
+                
+                if (whitePlayer->getSocket()) {
+                    sendMessage(whitePlayer->getSocket(), whiteGameStateMessage);
+                }
+                
+                if (blackPlayer->getSocket()) {
+                    sendMessage(blackPlayer->getSocket(), blackGameStateMessage);
+                }
+                
+                // Send move recommendations to the next player asynchronously
+                ChessPlayer* nextPlayer = game->getCurrentPlayer();
+                if (nextPlayer && nextPlayer->getSocket() && !game->isOver()) {
+                    try {
+                        generateMoveRecommendationsAsync(gameId, nextPlayer);
+                    } catch (const std::exception& e) {
+                        logger->error("processMoveRequest() - Exception scheduling move recommendations: " + std::string(e.what()));
+                    }
+                }
+
+                // If the game is over, update ratings and save history
+                if (game->isOver()) {
+                    updatePlayerRatings(game);
+                    saveGameHistory(*game);
+                }
+            }
+            break;
+            
+        case MoveValidationStatus::INVALID_PIECE:
+            response["success"] = false;
+            response["message"] = "No piece at the source position";
+            break;
+            
+        case MoveValidationStatus::INVALID_DESTINATION:
+            response["success"] = false;
+            response["message"] = "Invalid destination";
+            break;
+            
+        case MoveValidationStatus::INVALID_PATH:
+            response["success"] = false;
+            response["message"] = "Invalid move for this piece";
+            break;
+            
+        case MoveValidationStatus::KING_IN_CHECK:
+            response["success"] = false;
+            response["message"] = "Move would leave your king in check";
+            break;
+            
+        case MoveValidationStatus::WRONG_TURN:
+            response["success"] = false;
+            response["message"] = "It's not your turn";
+            break;
+            
+        case MoveValidationStatus::GAME_OVER:
+            response["success"] = false;
+            response["message"] = "The game is already over";
+            break;
+            
+        default:
+            response["success"] = false;
+            response["message"] = "Unknown error";
+            break;
+    }
+    
+    sendMessage(socket, response);
+    
+    // Log the move
+    if (status == MoveValidationStatus::VALID) {
+        logger->log("Player " + player->getUsername() + " made move " + moveStr + 
+                   " in game " + gameId);
+    } else {
+        logger->warning("Player " + player->getUsername() + " attempted invalid move " + 
+                       moveStr + " in game " + gameId + ": " + response["message"].toString().toStdString());
+    }
+}
+*/
+
+void MPChessServer::processMoveRequest(QTcpSocket* socket, const QJsonObject& data)
+{
+    ChessPlayer* player = socketToPlayer.value(socket, nullptr);
+    if (!player) {
+        logger->error("Move request from unauthenticated socket");
+        return;
+    }
+    
+    std::string gameId = data["gameId"].toString().toStdString();
+    std::string moveStr = data["move"].toString().toStdString();
+    
+    // Find the game
+    auto it = activeGames.find(gameId);
+    if (it == activeGames.end()) {
+        logger->error("Move request for non-existent game: " + gameId);
+        
+        QJsonObject response;
+        response["type"] = static_cast<int>(MessageType::MOVE_RESULT);
+        response["success"] = false;
+        response["message"] = "Game not found";
+        sendMessage(socket, response);
+        return;
+    }
+    
+    ChessGame* game = it->second.get();
+    
+    // Parse the move
+    ChessMove move = ChessMove::fromAlgebraic(moveStr);
+    
+    // Process the move
+    MoveValidationStatus status = game->processMove(player, move);
+    
+    // Prepare response
+    QJsonObject response;
+    response["type"] = static_cast<int>(MessageType::MOVE_RESULT);
+    
+    switch (status) {
+        case MoveValidationStatus::VALID:
+            response["success"] = true;
+            
+            // Increment total moves played
+            totalMovesPlayed++;
+            
+            // Send updated game state to both players
+            sendGameStateToPlayers(gameId);
+            
+            // Send move recommendations to the next player asynchronously
+            {
+                ChessPlayer* nextPlayer = game->getCurrentPlayer();
+                if (nextPlayer && nextPlayer->getSocket() && !game->isOver()) {
+                    try {
+                        generateMoveRecommendationsAsync(gameId, nextPlayer);
+                    } catch (const std::exception& e) {
+                        logger->error("processMoveRequest() - Exception scheduling move recommendations: " + std::string(e.what()));
+                    }
+                }
+
                 // If the game is over, update ratings and save history
                 if (game->isOver()) {
                     updatePlayerRatings(game);

@@ -32,6 +32,9 @@
 #include <QCommandLineParser>
 #include <QLoggingCategory>
 #include <QProcess>
+#include <QThreadPool>
+#include <QFuture>
+#include <QtConcurrent/QtConcurrent>
 
 #include <array>
 #include <vector>
@@ -50,6 +53,7 @@
 #include <iostream>
 #include <iomanip>
 #include <set>
+#include <mutex>
 
 // Forward declarations
 class ChessGame;
@@ -64,6 +68,7 @@ class ChessAnalysisEngine;
 class ChessLogger;
 class ChessAuthenticator;
 class ChessSerializer;
+class MoveRecommendationTask;
 
 /**
  * @brief Enum representing the type of chess piece
@@ -186,6 +191,73 @@ struct Position {
         if (col < 0 || col > 7 || row < 0 || row > 7) return Position();
         return Position(row, col);
     }
+};
+
+/**
+ * @brief Class for performance monitoring
+ */
+class PerformanceMonitor {
+public:
+    static void startTimer(const std::string& operation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        operationTimers[operation] = std::chrono::high_resolution_clock::now();
+    }
+    
+    static double endTimer(const std::string& operation) {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = operationTimers.find(operation);
+        if (it == operationTimers.end()) return 0.0;
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - it->second).count() / 1000.0;
+        
+        // Record the timing
+        if (operationStats.find(operation) == operationStats.end()) {
+            operationStats[operation] = {duration, duration, duration, 1};
+        } else {
+            auto& stats = operationStats[operation];
+            stats.total += duration;
+            stats.count++;
+            stats.min = std::min(stats.min, duration);
+            stats.max = std::max(stats.max, duration);
+        }
+        
+        operationTimers.erase(it);
+        return duration;
+    }
+    
+    static std::string getStatsSummary() {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::stringstream ss;
+        
+        ss << "Performance Statistics:\n";
+        for (const auto& [operation, stats] : operationStats) {
+            ss << operation << ": "
+               << "avg=" << (stats.total / stats.count) << "ms, "
+               << "min=" << stats.min << "ms, "
+               << "max=" << stats.max << "ms, "
+               << "count=" << stats.count << "\n";
+        }
+        
+        return ss.str();
+    }
+    
+    static void resetStats() {
+        std::lock_guard<std::mutex> lock(mutex);
+        operationStats.clear();
+    }
+    
+private:
+    struct OperationStats {
+        double total;
+        double min;
+        double max;
+        int count;
+    };
+    
+    static std::mutex mutex;
+    static std::unordered_map<std::string, std::chrono::time_point<std::chrono::high_resolution_clock>> operationTimers;
+    static std::unordered_map<std::string, OperationStats> operationStats;
 };
 
 /**
@@ -353,6 +425,43 @@ private:
     
     // Get the current board state as a string for repetition detection
     std::string getBoardStateString() const;
+
+    // For depth limiting
+    static constexpr int MAX_RECURSION_DEPTH = 12;
+    mutable std::unordered_map<std::thread::id, int> recursionDepth;
+    
+    // Helper methods for depth tracking
+    bool incrementRecursionDepth(const std::string& functionName) const;
+    void decrementRecursionDepth() const;
+
+    // For memoization
+    mutable std::unordered_map<std::string, bool> checkCache;
+    mutable std::unordered_map<std::string, bool> attackCache;
+    
+    // Helper methods for caching
+    std::string generateCheckCacheKey(PieceColor color) const;
+    std::string generateAttackCacheKey(const Position& pos, PieceColor attackerColor) const;
+    void clearCaches() const;
+
+    // For memoization of wouldLeaveInCheck
+    mutable std::unordered_map<std::string, bool> checkResultCache;
+    
+    // Helper method to generate cache key for wouldLeaveInCheck
+    std::string generateCheckResultCacheKey(const ChessMove& move, PieceColor color) const;
+
+    // For incremental updates
+    struct BoardDelta {
+        Position position;
+        std::unique_ptr<ChessPiece> oldPiece;
+        bool isModified;
+    };
+    
+    mutable std::vector<BoardDelta> lastMoveDelta;
+    
+    // Methods for incremental updates
+    void recordBoardDelta(const Position& pos) const;
+    void clearBoardDelta() const;
+    void restoreBoardDelta() const;
 };
 
 /**
@@ -547,6 +656,9 @@ private:
     
     // Evaluate a single piece
     double evaluatePiece(const ChessPiece* piece, const Position& pos, const ChessBoard& board) const;
+
+    // Simplified evaluation for quick recommendations
+    double quickEvaluateMove(const ChessBoard& board, const ChessMove& move, PieceColor color) const;
     
     // Piece-square tables for positional evaluation
     static const std::array<std::array<double, 8>, 8> pawnTable;
@@ -1088,6 +1200,85 @@ private:
     
     // Get the path to the logs directory
     std::string getLogsPath() const;
+
+    QThreadPool* threadPool;
+    
+    // Map to track recommendation tasks by game ID
+    QMap<std::string, MoveRecommendationTask*> recommendationTasks;
+
+    // Method to generate move recommendations asynchronously
+    void generateMoveRecommendationsAsync(const std::string& gameId, ChessPlayer* player);
+
+    // Helper method to determine board orientation for a player
+    QString getBoardOrientationForPlayer(ChessPlayer* player, const std::string& gameId) const;
+
+    // Helper method to send game state to players with correct orientation
+    void sendGameStateToPlayers(const std::string& gameId);
+
+    // Performance monitor timer
+    QTimer* performanceTimer;
+    
+    // Method to log performance statistics
+    void logPerformanceStats();
+};
+
+/**
+ * @brief Class to handle asynchronous move recommendations
+ */
+class MoveRecommendationTask : public QObject, public QRunnable {
+    Q_OBJECT
+    
+public:
+    MoveRecommendationTask(const ChessBoard& board, PieceColor color, int maxRecommendations, ChessAnalysisEngine* engine)
+        : board(board.clone()), color(color), maxRecommendations(maxRecommendations), engine(engine) {
+        setAutoDelete(true);
+    }
+    
+    void run() override {
+        try {
+            MPChessServer* server = MPChessServer::getInstance();
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("MoveRecommendationTask::run() - Starting async recommendation generation");
+            }
+            
+            // Generate recommendations
+            std::vector<std::pair<ChessMove, double>> recommendations;
+            
+            if (engine) {
+                recommendations = engine->getMoveRecommendations(*board, color, maxRecommendations);
+            }
+            
+            if (server && server->getLogger()) {
+                server->getLogger()->debug("MoveRecommendationTask::run() - Generated " + 
+                                          std::to_string(recommendations.size()) + " recommendations");
+            }
+            
+            // Emit the result signal
+            emit recommendationsReady(recommendations);
+            
+        } catch (const std::exception& e) {
+            MPChessServer* server = MPChessServer::getInstance();
+            if (server && server->getLogger()) {
+                server->getLogger()->error("MoveRecommendationTask::run() - Exception: " + std::string(e.what()));
+            }
+            emit recommendationsReady({});
+        } catch (...) {
+            MPChessServer* server = MPChessServer::getInstance();
+            if (server && server->getLogger()) {
+                server->getLogger()->error("MoveRecommendationTask::run() - Unknown exception");
+            }
+            emit recommendationsReady({});
+        }
+    }
+    
+signals:
+    void recommendationsReady(const std::vector<std::pair<ChessMove, double>>& recommendations);
+    
+private:
+    std::unique_ptr<ChessBoard> board;
+    PieceColor color;
+    int maxRecommendations;
+    ChessAnalysisEngine* engine;
 };
 
 #endif // MP_CHESS_SERVER_H
