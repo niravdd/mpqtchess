@@ -693,6 +693,7 @@ public:
     
     void highlightLastMove(const Position& from, const Position& to);
     void highlightCheck(const Position& kingPos);
+    void clearSelection();
     
     void setPlayerColor(PieceColor color);
     PieceColor getPlayerColor() const;
@@ -714,9 +715,15 @@ public:
     // For promotion dialog
     void showPromotionDialog(const Position& from, const Position& to, PieceColor color);
 
+    Position boardToLogical(const Position& pos) const;
+    Position logicalToBoard(const Position& pos) const;
+
+    void logBoardState();
+
 signals:
     void moveRequested(const QString& gameId, const ChessMove& move);
     void squareClicked(const Position& pos);
+    void checkTurn(PieceColor color); 
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -751,14 +758,14 @@ private:
     void setupBoard();
     void updateBoardSize();
     void createSquares();
-    
-    Position boardToLogical(const Position& pos) const;
-    Position logicalToBoard(const Position& pos) const;
+    void updateBoardLayout();
     
     void startDrag(const Position& pos);
     void handleDrop(const Position& pos);
     
     void animatePieceMovement(ChessPieceItem* piece, const QPointF& startPos, const QPointF& endPos);
+    void highlightValidMoves(const Position& from);
+    void highlightDirectionalMoves(const Position& from, int rowDir, int colDir, PieceColor pieceColor);        // Helper method for highlighting directional moves (bishop, rook, queen)
 };
 
 /**
@@ -1241,6 +1248,7 @@ private slots:
     // UI interaction slots
     void onMoveRequested(const QString& gameId, const ChessMove& move);
     void onSquareClicked(const Position& pos);
+    void onCheckTurn(PieceColor color);
     void onResignClicked();
     void onDrawOfferClicked();
     void onDrawOfferReceived(const QString& offeredBy);
@@ -1324,6 +1332,9 @@ private:
     QPushButton* replayNextButton;
     bool replayMode;
     int currentReplayIndex;
+    QLabel* playerInfoLabel;
+    QWidget* sidePanel;
+    QVBoxLayout* sidePanelLayout;
     
     void setupUI();
     void createMenus();
@@ -1345,6 +1356,9 @@ private:
     void enterReplayMode(const QVector<ChessMove>& moves);
     void exitReplayMode();
     void updateReplayControls();
+
+    void createPlayerInfoDisplay(const QString& whitePlayer, const QString& blackPlayer, const QString& yourColor);
+    void updatePlayerInfoDisplay(const QString& currentTurn);
     
     void saveSettings();
     void loadSettings();

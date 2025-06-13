@@ -621,60 +621,81 @@ void NetworkManager::onReadyRead() {
 // To process the buffer and extract complete JSON messages
 void NetworkManager::processBuffer()
 {
-    while (!buffer.isEmpty()) {
-        // Try to parse the current buffer content
-        QJsonParseError parseError;
-        QJsonDocument doc = QJsonDocument::fromJson(buffer, &parseError);
-        
-        if (parseError.error == QJsonParseError::NoError) {
-            // Successfully parsed a complete JSON message
-            if (doc.isObject()) {
-                logger->debug("Processing complete JSON message");
-                processMessage(doc.object());
-            } else {
-                logger->warning("Received JSON is not an object");
-            }
+    try {
+        while (!buffer.isEmpty()) {
+            // Try to parse the current buffer content
+            QJsonParseError parseError;
+            QJsonDocument doc = QJsonDocument::fromJson(buffer, &parseError);
             
-            // Clear the buffer
-            buffer.clear();
-        } else if (parseError.error == QJsonParseError::DocumentTooLarge) {
-            // Message is too large, discard the buffer
-            logger->error("JSON document too large, discarding buffer");
-            buffer.clear();
-        } else if (parseError.error == QJsonParseError::GarbageAtEnd || 
-                  parseError.error == QJsonParseError::IllegalValue) {
-            // Try to find a valid JSON object in the buffer
-            int braceCount = 0;
-            int startPos = buffer.indexOf('{');
-            
-            if (startPos >= 0) {
-                for (int i = startPos; i < buffer.size(); i++) {
-                    if (buffer[i] == '{') braceCount++;
-                    else if (buffer[i] == '}') braceCount--;
+            if (parseError.error == QJsonParseError::NoError) {
+                // Successfully parsed a complete JSON message
+                if (doc.isObject()) {
+                    logger->debug("Processing complete JSON message");
                     
-                    if (braceCount == 0 && i > startPos) {
-                        // Found a potential complete JSON object
-                        QByteArray jsonData = buffer.mid(startPos, i - startPos + 1);
-                        QJsonDocument testDoc = QJsonDocument::fromJson(jsonData, &parseError);
+                    // Process the message in a queued connection to prevent recursion
+                    QJsonObject msgObj = doc.object();
+                    QMetaObject::invokeMethod(this, [this, msgObj]() {
+                        processMessage(msgObj);
+                    }, Qt::QueuedConnection);
+                } else {
+                    logger->warning("Received JSON is not an object");
+                }
+                
+                // Clear the buffer
+                buffer.clear();
+            } else if (parseError.error == QJsonParseError::DocumentTooLarge) {
+                // Message is too large, discard the buffer
+                logger->error("JSON document too large, discarding buffer");
+                buffer.clear();
+            } else if (parseError.error == QJsonParseError::GarbageAtEnd || 
+                      parseError.error == QJsonParseError::IllegalValue) {
+                // Try to find a valid JSON object in the buffer
+                int braceCount = 0;
+                int startPos = buffer.indexOf('{');
+                
+                if (startPos >= 0) {
+                    for (int i = startPos; i < buffer.size(); i++) {
+                        if (buffer[i] == '{') braceCount++;
+                        else if (buffer[i] == '}') braceCount--;
                         
-                        if (parseError.error == QJsonParseError::NoError && testDoc.isObject()) {
-                            logger->debug("Found valid JSON object in buffer");
-                            processMessage(testDoc.object());
-                            buffer.remove(0, i + 1);
-                            continue;
+                        if (braceCount == 0 && i > startPos) {
+                            // Found a potential complete JSON object
+                            QByteArray jsonData = buffer.mid(startPos, i - startPos + 1);
+                            QJsonDocument testDoc = QJsonDocument::fromJson(jsonData, &parseError);
+                            
+                            if (parseError.error == QJsonParseError::NoError && testDoc.isObject()) {
+                                logger->debug("Found valid JSON object in buffer");
+                                
+                                // Process the message in a queued connection
+                                QJsonObject msgObj = testDoc.object();
+                                QMetaObject::invokeMethod(this, [this, msgObj]() {
+                                    processMessage(msgObj);
+                                }, Qt::QueuedConnection);
+                                
+                                buffer.remove(0, i + 1);
+                                break;
+                            }
                         }
                     }
                 }
+                
+                // If we couldn't find a valid JSON object, discard the buffer
+                if (!buffer.isEmpty()) {
+                    logger->warning(QString("JSON parse error: %1, discarding buffer").arg(parseError.errorString()));
+                    buffer.clear();
+                }
+            } else {
+                // Probably an incomplete message, wait for more data
+                logger->debug(QString("Incomplete JSON message: %1").arg(parseError.errorString()));
+                break;
             }
-            
-            // If we get here, we couldn't find a valid JSON object
-            logger->warning(QString("JSON parse error: %1, discarding buffer").arg(parseError.errorString()));
-            buffer.clear();
-        } else {
-            // Probably an incomplete message, wait for more data
-            logger->debug(QString("Incomplete JSON message: %1").arg(parseError.errorString()));
-            break;
         }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in processBuffer: %1").arg(e.what()));
+        buffer.clear();
+    } catch (...) {
+        logger->error("Unknown exception in processBuffer");
+        buffer.clear();
     }
 }
 
@@ -823,13 +844,29 @@ void NetworkManager::processGameStart(const QJsonObject& data) {
     emit gameStarted(data);
 }
 
-void NetworkManager::processGameState(const QJsonObject& data) {
-    QJsonObject gameState = data["gameState"].toObject();
-    QString gameId = gameState["gameId"].toString();
-    
-    logger->debug(QString("Received game state update for game: %1").arg(gameId));
-    
-    emit gameStateUpdated(gameState);
+void NetworkManager::processGameState(const QJsonObject& data)
+{
+    try {
+        if (!data.contains("gameState")) {
+            logger->warning("Received game state message without gameState field");
+            return;
+        }
+        
+        QJsonObject gameState = data["gameState"].toObject();
+        QString gameId = gameState["gameId"].toString();
+        
+        logger->debug(QString("Received game state update for game: %1").arg(gameId));
+        
+        // Emit signal with a queued connection to prevent recursive calls
+        QMetaObject::invokeMethod(this, [this, gameState]() {
+            emit gameStateUpdated(gameState);
+        }, Qt::QueuedConnection);
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in processGameState: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in processGameState");
+    }
 }
 
 void NetworkManager::processMoveResult(const QJsonObject& data) {
@@ -1566,24 +1603,43 @@ void ChessPieceItem::updateTheme() {
     update();
 }
 
-void ChessPieceItem::mousePressEvent(QGraphicsSceneMouseEvent* event) {
+void ChessPieceItem::mousePressEvent(QGraphicsSceneMouseEvent* event)
+{
+    // Store the original position for snapping back if needed
     dragStartPosition = pos();
+
     QGraphicsItem::mousePressEvent(event);
 }
 
-void ChessPieceItem::mouseMoveEvent(QGraphicsSceneMouseEvent* event) {
+void ChessPieceItem::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
+{
     // Bring to front while dragging
     setZValue(2);
+    
+    // Store original position
+    QPointF originalPos = pos();
+    
+    // Let Qt handle the basic movement
     QGraphicsItem::mouseMoveEvent(event);
+    
+    // Log the movement
+    qDebug() << "Piece moved to:" << pos();
+    
+    // Constrain to grid
+    int squareSize = getSquareSize();
+    setPos(qRound(pos().x() / squareSize) * squareSize, qRound(pos().y() / squareSize) * squareSize);
 }
 
-void ChessPieceItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event) {
+void ChessPieceItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
+{
     // Reset Z value
     setZValue(1);
+
     QGraphicsItem::mouseReleaseEvent(event);
 }
 
-void ChessPieceItem::loadSvg() {
+void ChessPieceItem::loadSvg()
+{
     // Get the SVG file name for this piece
     QString svgFileName = ChessPiece(type, color).getSvgFileName(themeManager->getPieceThemePath());
     
@@ -1644,7 +1700,8 @@ ChessBoardWidget::ChessBoardWidget(ThemeManager* themeManager, AudioManager* aud
     }
 }
 
-ChessBoardWidget::~ChessBoardWidget() {
+ChessBoardWidget::~ChessBoardWidget()
+{
     // Scene will delete all items
     delete scene;
 }
@@ -1691,7 +1748,8 @@ void ChessBoardWidget::resetBoard()
     }
 }
 
-void ChessBoardWidget::setupInitialPosition() {
+void ChessBoardWidget::setupInitialPosition()
+{
     // Set up white pieces
     setPiece(Position(0, 0), PieceType::ROOK, PieceColor::WHITE);
     setPiece(Position(0, 1), PieceType::KNIGHT, PieceColor::WHITE);
@@ -1721,7 +1779,16 @@ void ChessBoardWidget::setupInitialPosition() {
     }
 }
 
-void ChessBoardWidget::setPiece(const Position& pos, PieceType type, PieceColor color) {
+void ChessBoardWidget::setPiece(const Position& pos, PieceType type, PieceColor color)
+{
+    logger->debug(QString("Setting piece: type=%1, color=%2, position=(%3,%4), flipped=%5")
+        .arg(static_cast<int>(type))
+        .arg(static_cast<int>(color))
+        .arg(pos.row)
+        .arg(pos.col)
+        .arg(flipped));
+
+    // Convert logical position to board position (handles flipping)
     Position boardPos = logicalToBoard(pos);
     
     // Remove existing piece if any
@@ -1740,7 +1807,8 @@ void ChessBoardWidget::setPiece(const Position& pos, PieceType type, PieceColor 
     pieces[pos.row][pos.col] = piece;
 }
 
-void ChessBoardWidget::removePiece(const Position& pos) {
+void ChessBoardWidget::removePiece(const Position& pos)
+{
     if (pos.isValid() && pieces[pos.row][pos.col]) {
         scene->removeItem(pieces[pos.row][pos.col]);
         delete pieces[pos.row][pos.col];
@@ -1748,7 +1816,8 @@ void ChessBoardWidget::removePiece(const Position& pos) {
     }
 }
 
-void ChessBoardWidget::movePiece(const Position& from, const Position& to, bool animate) {
+void ChessBoardWidget::movePiece(const Position& from, const Position& to, bool animate)
+{
     ChessPieceItem* piece = getPieceAt(from);
     if (!piece) {
         return;
@@ -1787,27 +1856,33 @@ void ChessBoardWidget::movePiece(const Position& from, const Position& to, bool 
     }
 }
 
-void ChessBoardWidget::setSquareSize(int size) {
+void ChessBoardWidget::setSquareSize(int size)
+{
     squareSize = size;
     updateBoardSize();
 }
 
-int ChessBoardWidget::getSquareSize() const {
+int ChessBoardWidget::getSquareSize() const
+{
     return squareSize;
 }
 
-void ChessBoardWidget::setFlipped(bool flip) {
-    if (flipped != flip) {
+void ChessBoardWidget::setFlipped(bool flip)
+{
+    if (flipped != flip)
+    {
         flipped = flip;
         updateBoardSize();
     }
 }
 
-bool ChessBoardWidget::isFlipped() const {
+bool ChessBoardWidget::isFlipped() const
+{
     return flipped;
 }
 
-void ChessBoardWidget::highlightSquare(const Position& pos, const QColor& color) {
+void ChessBoardWidget::highlightSquare(const Position& pos, const QColor& color)
+{
     Position boardPos = logicalToBoard(pos);
     
     QGraphicsRectItem* highlight = new QGraphicsRectItem(
@@ -1825,7 +1900,8 @@ void ChessBoardWidget::highlightSquare(const Position& pos, const QColor& color)
     highlightItems.append(highlight);
 }
 
-void ChessBoardWidget::clearHighlights() {
+void ChessBoardWidget::clearHighlights()
+{
     for (QGraphicsRectItem* item : highlightItems) {
         scene->removeItem(item);
         delete item;
@@ -1833,37 +1909,157 @@ void ChessBoardWidget::clearHighlights() {
     highlightItems.clear();
 }
 
-void ChessBoardWidget::highlightLastMove(const Position& from, const Position& to) {
+void ChessBoardWidget::highlightLastMove(const Position& from, const Position& to)
+{
     clearHighlights();
     
     highlightSquare(from, themeManager->getLastMoveHighlightColor());
     highlightSquare(to, themeManager->getLastMoveHighlightColor());
 }
 
-void ChessBoardWidget::highlightCheck(const Position& kingPos) {
+void ChessBoardWidget::highlightCheck(const Position& kingPos)
+{
     highlightSquare(kingPos, themeManager->getCheckHighlightColor());
 }
 
-void ChessBoardWidget::setPlayerColor(PieceColor color) {
-    playerColor = color;
-    
-    // Flip board if playing as black
-    setFlipped(playerColor == PieceColor::BLACK);
+void ChessBoardWidget::setPlayerColor(PieceColor color)
+{
+    try
+    {
+        // Store the old color to check if we're actually changing it
+        PieceColor oldColor = playerColor;
+        playerColor = color;
+        
+        // Determine if board should be flipped based on player color
+        bool shouldFlip = (playerColor == PieceColor::BLACK);
+        
+        // Only update the board if the flip state is changing
+        if (flipped != shouldFlip)
+        {
+            flipped = shouldFlip;
+            
+            // Instead of calling resetBoard() which causes recursion,
+            // just update the board layout without recreating everything
+            updateBoardLayout();
+            
+            if (logger)
+            {
+                logger->info(QString("Board flipped: %1").arg(flipped ? "true" : "false"));
+            }
+        }
+        else if (oldColor != playerColor && logger)
+        {
+            // Log that color changed but flip state didn't
+            logger->info(QString("Player color changed from %1 to %2, but board flip state remains %3")
+                .arg(oldColor == PieceColor::WHITE ? "white" : "black")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(flipped ? "flipped" : "not flipped"));
+        }
+        
+        if (logger)
+        {
+            logger->info(QString("Player color set to %1, board flipped: %2")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(flipped ? "true" : "false"));
+        }
+    } catch (const std::exception& e)
+    {
+        if (logger)
+        {
+            logger->error(QString("Exception in setPlayerColor: %1").arg(e.what()));
+        }
+    } catch (...)
+    {
+        if (logger)
+        {
+            logger->error("Unknown exception in setPlayerColor");
+        }
+    }
 }
 
-PieceColor ChessBoardWidget::getPlayerColor() const {
+// Helper method to update board layout without full reset
+void ChessBoardWidget::updateBoardLayout()
+{
+    try {
+        if (logger) logger->info("ChessBoardWidget::updateBoardLayout() - Start");
+        
+        // Update square positions
+        createSquares();
+        
+        // Update piece positions based on the new orientation
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                if (pieces[r][c]) {
+                    Position boardPos = logicalToBoard(Position(r, c));
+                    pieces[r][c]->setPos(boardPos.col * squareSize, boardPos.row * squareSize);
+                }
+            }
+        }
+        
+        // Update highlight positions if any
+        QVector<QGraphicsRectItem*> oldHighlights = highlightItems;
+        highlightItems.clear();
+        
+        for (QGraphicsRectItem* item : oldHighlights) {
+            // Get the logical position of this highlight
+            QRectF rect = item->rect();
+            int col = static_cast<int>(rect.x() / squareSize);
+            int row = static_cast<int>(rect.y() / squareSize);
+            Position boardPos(row, col);
+            Position logicalPos = boardToLogical(boardPos);
+            
+            // Remove old highlight
+            scene->removeItem(item);
+            delete item;
+            
+            // Add new highlight at the correct position
+            highlightSquare(logicalPos, item->brush().color());
+        }
+        
+        // Update hint positions if any
+        QVector<QGraphicsEllipseItem*> oldHints = hintItems;
+        hintItems.clear();
+        
+        for (QGraphicsEllipseItem* item : oldHints) {
+            // Get the logical position of this hint
+            QRectF rect = item->rect();
+            int col = static_cast<int>((rect.x() - squareSize * 0.3) / squareSize);
+            int row = static_cast<int>((rect.y() - squareSize * 0.3) / squareSize);
+            Position boardPos(row, col);
+            Position logicalPos = boardToLogical(boardPos);
+            
+            // Remove old hint
+            scene->removeItem(item);
+            delete item;
+            
+            // We'll need to recreate the hints later if needed
+        }
+        
+        if (logger) logger->info("ChessBoardWidget::updateBoardLayout() - Finished");
+    } catch (const std::exception& e) {
+        if (logger) logger->error(QString("Exception in updateBoardLayout(): %1").arg(e.what()));
+    } catch (...) {
+        if (logger) logger->error("Unknown exception in updateBoardLayout()");
+    }
+}
+
+PieceColor ChessBoardWidget::getPlayerColor() const
+{
     return playerColor;
 }
 
-void ChessBoardWidget::setInteractive(bool interactive) {
+void ChessBoardWidget::setInteractive(bool interactive)
+{
     this->interactive = interactive;
 }
 
-bool ChessBoardWidget::isInteractive() const {
+bool ChessBoardWidget::isInteractive() const
+{
     return interactive;
 }
 
-void ChessBoardWidget::showMoveHints(const QVector<Position>& positions) {
+void ChessBoardWidget::showMoveHints(const QVector<Position>& positions)
+{
     clearMoveHints();
     
     for (const Position& pos : positions) {
@@ -1887,7 +2083,8 @@ void ChessBoardWidget::showMoveHints(const QVector<Position>& positions) {
     }
 }
 
-void ChessBoardWidget::clearMoveHints() {
+void ChessBoardWidget::clearMoveHints()
+{
     for (QGraphicsEllipseItem* item : hintItems) {
         scene->removeItem(item);
         delete item;
@@ -1895,22 +2092,26 @@ void ChessBoardWidget::clearMoveHints() {
     hintItems.clear();
 }
 
-void ChessBoardWidget::setCurrentGameId(const QString& gameId) {
+void ChessBoardWidget::setCurrentGameId(const QString& gameId) 
+{
     currentGameId = gameId;
 }
 
-QString ChessBoardWidget::getCurrentGameId() const {
+QString ChessBoardWidget::getCurrentGameId() const
+{
     return currentGameId;
 }
 
-ChessPieceItem* ChessBoardWidget::getPieceAt(const Position& pos) const {
+ChessPieceItem* ChessBoardWidget::getPieceAt(const Position& pos) const
+{
     if (!pos.isValid()) {
         return nullptr;
     }
     return pieces[pos.row][pos.col];
 }
 
-Position ChessBoardWidget::getPositionAt(const QPointF& scenePos) const {
+Position ChessBoardWidget::getPositionAt(const QPointF& scenePos) const
+{
     int col = static_cast<int>(scenePos.x() / squareSize);
     int row = static_cast<int>(scenePos.y() / squareSize);
     
@@ -1929,7 +2130,8 @@ void ChessBoardWidget::updateTheme()
     qDebug() << ("From ChessBoardWidget::updateTheme() -- Finished.");
 }
 
-void ChessBoardWidget::showPromotionDialog(const Position& from, const Position& to, PieceColor color) {
+void ChessBoardWidget::showPromotionDialog(const Position& from, const Position& to, PieceColor color)
+{
     PromotionDialog dialog(color, themeManager, this);
     
     connect(&dialog, &PromotionDialog::pieceSelected, this, &ChessBoardWidget::onPromotionSelected);
@@ -1945,33 +2147,54 @@ void ChessBoardWidget::showPromotionDialog(const Position& from, const Position&
     }
 }
 
-void ChessBoardWidget::resizeEvent(QResizeEvent* event) {
+void ChessBoardWidget::resizeEvent(QResizeEvent* event)
+{
     QGraphicsView::resizeEvent(event);
     updateBoardSize();
 }
 
-void ChessBoardWidget::mousePressEvent(QMouseEvent* event) {
+void ChessBoardWidget::mousePressEvent(QMouseEvent* event)
+{
     if (!interactive) {
         return;
     }
     
-    if (event->button() == Qt::LeftButton) {
+    if (event->button() == Qt::LeftButton)
+    {
         QPointF scenePos = mapToScene(event->position().toPoint());
-
         Position pos = getPositionAt(scenePos);
         
-        if (pos.isValid()) {
+        if (pos.isValid())
+        {
             // Check if there's a piece at this position
             ChessPieceItem* piece = getPieceAt(pos);
             
-            if (piece && piece->getColor() == playerColor) {
+            if (piece && piece->getColor() == playerColor)
+            {
+                // Check if it's our turn (emit signal to let the game manager check)
+                emit checkTurn(piece->getColor());
+
                 // Start dragging the piece
                 selectedPosition = pos;
+                dragStartPosition = pos;
+                
+                // Highlight valid move destinations
+                highlightValidMoves(pos);
+                // Log the selection
+                if (logger)
+                {
+                    logger->debug(QString("Selected piece at (%1,%2) of type %3 and color %4")
+                        .arg(pos.row)
+                        .arg(pos.col)
+                        .arg(static_cast<int>(piece->getType()))
+                        .arg(piece->getColor() == PieceColor::WHITE ? "white" : "black"));
+                }
             } else {
-                // Clicked on an empty square or opponent's piece
+                // Clicked on opponent's piece or empty square
                 if (selectedPosition.isValid()) {
                     // Try to move the selected piece to this square
                     handleDrop(pos);
+                    clearHighlights(); // Clear highlights after move
                 } else {
                     // Just select the square
                     emit squareClicked(pos);
@@ -1979,37 +2202,356 @@ void ChessBoardWidget::mousePressEvent(QMouseEvent* event) {
             }
         }
     }
-    
+
     QGraphicsView::mousePressEvent(event);
 }
 
-void ChessBoardWidget::mouseReleaseEvent(QMouseEvent* event) {
-    if (!interactive) {
+void ChessBoardWidget::highlightValidMoves(const Position& from)
+{
+    try {
+        // Clear any existing highlights
+        clearHighlights();
+        
+        // Highlight the selected piece's square
+        highlightSquare(from, QColor(100, 100, 255, 128));
+        
+        ChessPieceItem* piece = getPieceAt(from);
+        if (!piece) {
+            logger->warning(QString("No piece found at position (%1,%2) in highlightValidMoves").arg(from.row).arg(from.col));
+            return;
+        }
+        
+        PieceType pieceType = piece->getType();
+        PieceColor pieceColor = piece->getColor();
+        
+        logger->debug(QString("Highlighting valid moves for %1 %2 at (%3,%4)")
+                     .arg(pieceColor == PieceColor::WHITE ? "white" : "black")
+                     .arg(static_cast<int>(pieceType))
+                     .arg(from.row)
+                     .arg(from.col));
+        
+        // Highlight different squares based on piece type
+        switch (pieceType) {
+            case PieceType::PAWN: {
+                // Pawns move differently based on color
+                int direction = (pieceColor == PieceColor::WHITE) ? 1 : -1;
+                
+                // Forward move (one square)
+                Position oneForward(from.row + direction, from.col);
+                if (oneForward.isValid() && !getPieceAt(oneForward)) {
+                    highlightSquare(oneForward, QColor(0, 255, 0, 100));
+                    
+                    // Two squares forward from starting position
+                    if ((pieceColor == PieceColor::WHITE && from.row == 1) ||
+                        (pieceColor == PieceColor::BLACK && from.row == 6)) {
+                        Position twoForward(from.row + 2 * direction, from.col);
+                        if (twoForward.isValid() && !getPieceAt(twoForward)) {
+                            highlightSquare(twoForward, QColor(0, 255, 0, 100));
+                        }
+                    }
+                }
+                
+                // Diagonal captures
+                Position captureLeft(from.row + direction, from.col - 1);
+                Position captureRight(from.row + direction, from.col + 1);
+                
+                if (captureLeft.isValid()) {
+                    ChessPieceItem* leftPiece = getPieceAt(captureLeft);
+                    if (leftPiece && leftPiece->getColor() != pieceColor) {
+                        highlightSquare(captureLeft, QColor(255, 0, 0, 100));
+                    }
+                }
+                
+                if (captureRight.isValid()) {
+                    ChessPieceItem* rightPiece = getPieceAt(captureRight);
+                    if (rightPiece && rightPiece->getColor() != pieceColor) {
+                        highlightSquare(captureRight, QColor(255, 0, 0, 100));
+                    }
+                }
+                
+                // En passant capture
+                // For white pawns on the 5th rank or black pawns on the 4th rank
+                if ((pieceColor == PieceColor::WHITE && from.row == 4) || 
+                    (pieceColor == PieceColor::BLACK && from.row == 3)) {
+                    
+                    // Check left side for en passant
+                    if (from.col > 0) {
+                        Position leftPos(from.row, from.col - 1);
+                        ChessPieceItem* leftPiece = getPieceAt(leftPos);
+                        
+                        // If there's an enemy pawn to the left that just moved two squares
+                        if (leftPiece && leftPiece->getType() == PieceType::PAWN && 
+                            leftPiece->getColor() != pieceColor) {
+                            
+                            // In a real implementation, we would check if this pawn just moved two squares
+                            // For this UI highlight, we'll just show it as a possibility
+                            // The server will validate the actual move
+                            Position enPassantTarget(from.row + direction, from.col - 1);
+                            highlightSquare(enPassantTarget, QColor(255, 0, 0, 100));
+                        }
+                    }
+                    
+                    // Check right side for en passant
+                    if (from.col < 7) {
+                        Position rightPos(from.row, from.col + 1);
+                        ChessPieceItem* rightPiece = getPieceAt(rightPos);
+                        
+                        // If there's an enemy pawn to the right that just moved two squares
+                        if (rightPiece && rightPiece->getType() == PieceType::PAWN && 
+                            rightPiece->getColor() != pieceColor) {
+                            
+                            // In a real implementation, we would check if this pawn just moved two squares
+                            // For this UI highlight, we'll just show it as a possibility
+                            // The server will validate the actual move
+                            Position enPassantTarget(from.row + direction, from.col + 1);
+                            highlightSquare(enPassantTarget, QColor(255, 0, 0, 100));
+                        }
+                    }
+                }
+                break;
+            }
+            
+            case PieceType::KNIGHT: {
+                // Knights move in L-shapes
+                const std::vector<std::pair<int, int>> knightMoves = {
+                    {2, 1}, {1, 2}, {-1, 2}, {-2, 1},
+                    {-2, -1}, {-1, -2}, {1, -2}, {2, -1}
+                };
+                
+                for (const auto& move : knightMoves) {
+                    Position newPos(from.row + move.first, from.col + move.second);
+                    if (newPos.isValid()) {
+                        ChessPieceItem* targetPiece = getPieceAt(newPos);
+                        if (!targetPiece) {
+                            // Empty square - valid move
+                            highlightSquare(newPos, QColor(0, 255, 0, 100));
+                        } else if (targetPiece->getColor() != pieceColor) {
+                            // Opponent's piece - can capture
+                            highlightSquare(newPos, QColor(255, 0, 0, 100));
+                        }
+                    }
+                }
+                break;
+            }
+            
+            case PieceType::BISHOP: {
+                // Bishops move diagonally
+                const std::vector<std::pair<int, int>> directions = {
+                    {1, 1}, {1, -1}, {-1, 1}, {-1, -1}
+                };
+                
+                for (const auto& dir : directions) {
+                    highlightDirectionalMoves(from, dir.first, dir.second, pieceColor);
+                }
+                break;
+            }
+            
+            case PieceType::ROOK: {
+                // Rooks move horizontally and vertically
+                const std::vector<std::pair<int, int>> directions = {
+                    {0, 1}, {1, 0}, {0, -1}, {-1, 0}
+                };
+                
+                for (const auto& dir : directions) {
+                    highlightDirectionalMoves(from, dir.first, dir.second, pieceColor);
+                }
+                break;
+            }
+            
+            case PieceType::QUEEN: {
+                // Queens move in all directions
+                const std::vector<std::pair<int, int>> directions = {
+                    {0, 1}, {1, 1}, {1, 0}, {1, -1},
+                    {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}
+                };
+                
+                for (const auto& dir : directions) {
+                    highlightDirectionalMoves(from, dir.first, dir.second, pieceColor);
+                }
+                break;
+            }
+            
+            case PieceType::KING: {
+                // Kings move one square in any direction
+                const std::vector<std::pair<int, int>> directions = {
+                    {0, 1}, {1, 1}, {1, 0}, {1, -1},
+                    {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}
+                };
+                
+                for (const auto& dir : directions) {
+                    Position newPos(from.row + dir.first, from.col + dir.second);
+                    if (newPos.isValid()) {
+                        ChessPieceItem* targetPiece = getPieceAt(newPos);
+                        if (!targetPiece) {
+                            // Empty square - valid move
+                            highlightSquare(newPos, QColor(0, 255, 0, 100));
+                        } else if (targetPiece->getColor() != pieceColor) {
+                            // Opponent's piece - can capture
+                            highlightSquare(newPos, QColor(255, 0, 0, 100));
+                        }
+                    }
+                }
+                
+                // Check for castling
+                // This is just for UI highlighting - the server will validate the actual move
+                if (pieceColor == PieceColor::WHITE) {
+                    // White king at starting position
+                    if (from.row == 0 && from.col == 4) {
+                        // Check kingside castling
+                        if (!getPieceAt(Position(0, 5)) && !getPieceAt(Position(0, 6)) && 
+                            getPieceAt(Position(0, 7)) && 
+                            getPieceAt(Position(0, 7))->getType() == PieceType::ROOK &&
+                            getPieceAt(Position(0, 7))->getColor() == PieceColor::WHITE) {
+                            
+                            highlightSquare(Position(0, 6), QColor(0, 255, 0, 100));
+                        }
+                        
+                        // Check queenside castling
+                        if (!getPieceAt(Position(0, 3)) && !getPieceAt(Position(0, 2)) && 
+                            !getPieceAt(Position(0, 1)) &&
+                            getPieceAt(Position(0, 0)) && 
+                            getPieceAt(Position(0, 0))->getType() == PieceType::ROOK &&
+                            getPieceAt(Position(0, 0))->getColor() == PieceColor::WHITE) {
+                            
+                            highlightSquare(Position(0, 2), QColor(0, 255, 0, 100));
+                        }
+                    }
+                } else {
+                    // Black king at starting position
+                    if (from.row == 7 && from.col == 4) {
+                        // Check kingside castling
+                        if (!getPieceAt(Position(7, 5)) && !getPieceAt(Position(7, 6)) && 
+                            getPieceAt(Position(7, 7)) && 
+                            getPieceAt(Position(7, 7))->getType() == PieceType::ROOK &&
+                            getPieceAt(Position(7, 7))->getColor() == PieceColor::BLACK) {
+                            
+                            highlightSquare(Position(7, 6), QColor(0, 255, 0, 100));
+                        }
+                        
+                        // Check queenside castling
+                        if (!getPieceAt(Position(7, 3)) && !getPieceAt(Position(7, 2)) && 
+                            !getPieceAt(Position(7, 1)) &&
+                            getPieceAt(Position(7, 0)) && 
+                            getPieceAt(Position(7, 0))->getType() == PieceType::ROOK &&
+                            getPieceAt(Position(7, 0))->getColor() == PieceColor::BLACK) {
+                            
+                            highlightSquare(Position(7, 2), QColor(0, 255, 0, 100));
+                        }
+                    }
+                }
+                break;
+            }
+            
+            default:
+                logger->warning(QString("Unknown piece type %1 in highlightValidMoves").arg(static_cast<int>(pieceType)));
+                break;
+        }
+        
+        // Log the number of highlighted squares
+        logger->debug(QString("Highlighted %1 valid moves for piece at (%2,%3)")
+                     .arg(highlightItems.size() - 1)  // Subtract 1 for the selected square highlight
+                     .arg(from.row)
+                     .arg(from.col));
+        
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in highlightValidMoves(): %1").arg(e.what()));
+        } else {
+            qDebug() << "Exception in highlightValidMoves():" << e.what();
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in highlightValidMoves()");
+        } else {
+            qDebug() << "Unknown exception in highlightValidMoves()";
+        }
+    }
+}
+
+// Helper method to highlight moves in a specific direction (for bishop, rook, queen)
+void ChessBoardWidget::highlightDirectionalMoves(const Position& from, int rowDir, int colDir, PieceColor pieceColor) {
+    try {
+        Position pos(from.row + rowDir, from.col + colDir);
+        
+        while (pos.isValid()) {
+            ChessPieceItem* targetPiece = getPieceAt(pos);
+            
+            if (!targetPiece) {
+                // Empty square - valid move
+                highlightSquare(pos, QColor(0, 255, 0, 100));
+                pos.row += rowDir;
+                pos.col += colDir;
+            } else {
+                // Found a piece
+                if (targetPiece->getColor() != pieceColor) {
+                    // Opponent's piece - can capture
+                    highlightSquare(pos, QColor(255, 0, 0, 100));
+                }
+                break; // Stop in this direction
+            }
+        }
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in highlightDirectionalMoves(): %1").arg(e.what()));
+        } else {
+            qDebug() << "Exception in highlightDirectionalMoves():" << e.what();
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in highlightDirectionalMoves()");
+        } else {
+            qDebug() << "Unknown exception in highlightDirectionalMoves()";
+        }
+    }
+}
+
+void ChessBoardWidget::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (!interactive)
+    {
+        QGraphicsView::mouseReleaseEvent(event);
         return;
     }
     
-    if (event->button() == Qt::LeftButton && selectedPosition.isValid()) {
+    if (event->button() == Qt::LeftButton && selectedPosition.isValid())
+    {
         QPointF scenePos = mapToScene(event->position().toPoint());
-        Position pos = getPositionAt(scenePos);
+        Position targetPos = getPositionAt(scenePos);
         
-        if (pos.isValid() && pos != selectedPosition) {
-            // Try to move the piece
-            handleDrop(pos);
+        ChessPieceItem* piece = getPieceAt(selectedPosition);
+        if (piece)
+        {
+            if (targetPos.isValid() && targetPos != selectedPosition)
+            {
+                // Try to move the piece
+                handleDrop(targetPos);
+            } else {
+                // Snap back to original position
+                Position boardPos = logicalToBoard(selectedPosition);
+                piece->setPos(boardPos.col * squareSize, boardPos.row * squareSize);
+            }
         }
+        
+        // Clear highlights and reset selection
+        clearHighlights();
+        selectedPosition = Position();
     }
     
     QGraphicsView::mouseReleaseEvent(event);
 }
 
-void ChessBoardWidget::dragEnterEvent(QDragEnterEvent* event) {
+void ChessBoardWidget::dragEnterEvent(QDragEnterEvent* event)
+{
     event->acceptProposedAction();
 }
 
-void ChessBoardWidget::dragMoveEvent(QDragMoveEvent* event) {
+void ChessBoardWidget::dragMoveEvent(QDragMoveEvent* event)
+{
     event->acceptProposedAction();
 }
 
-void ChessBoardWidget::dropEvent(QDropEvent* event) {
+void ChessBoardWidget::dropEvent(QDropEvent* event)
+{
     if (!interactive) {
         return;
     }
@@ -2025,7 +2567,8 @@ void ChessBoardWidget::dropEvent(QDropEvent* event) {
     event->acceptProposedAction();
 }
 
-void ChessBoardWidget::onPromotionSelected(PieceType promotionType) {
+void ChessBoardWidget::onPromotionSelected(PieceType promotionType)
+{
     // This is handled in showPromotionDialog
 }
 
@@ -2062,7 +2605,8 @@ void ChessBoardWidget::setupBoard()
     }
 }
 
-void ChessBoardWidget::updateBoardSize() {
+void ChessBoardWidget::updateBoardSize()
+{
     // Update scene rect
     scene->setSceneRect(0, 0, 8 * squareSize, 8 * squareSize);
     
@@ -2090,7 +2634,8 @@ void ChessBoardWidget::updateBoardSize() {
     fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
 }
 
-void ChessBoardWidget::createSquares() {
+void ChessBoardWidget::createSquares()
+{
     // Remove existing squares
     for (QGraphicsItem* item : scene->items()) {
         if (dynamic_cast<QGraphicsRectItem*>(item) && item->zValue() == 0) {
@@ -2136,25 +2681,29 @@ void ChessBoardWidget::createSquares() {
     }
 }
 
-Position ChessBoardWidget::boardToLogical(const Position& pos) const {
+Position ChessBoardWidget::boardToLogical(const Position& pos) const
+{
     if (flipped) {
         return Position(7 - pos.row, 7 - pos.col);
     }
     return pos;
 }
 
-Position ChessBoardWidget::logicalToBoard(const Position& pos) const {
+Position ChessBoardWidget::logicalToBoard(const Position& pos) const
+{
     if (flipped) {
         return Position(7 - pos.row, 7 - pos.col);
     }
     return pos;
 }
 
-void ChessBoardWidget::startDrag(const Position& pos) {
+void ChessBoardWidget::startDrag(const Position& pos)
+{
     selectedPosition = pos;
 }
 
-void ChessBoardWidget::handleDrop(const Position& pos) {
+void ChessBoardWidget::handleDrop(const Position& pos)
+{
     if (!selectedPosition.isValid()) {
         return;
     }
@@ -4290,45 +4839,83 @@ GameManager::GameManager(NetworkManager* networkManager, Logger* logger, QObject
 GameManager::~GameManager() {
 }
 
-void GameManager::startNewGame(const QJsonObject& gameData) {
-    // Extract game information
-    currentGameId = gameData["gameId"].toString();
-    QString whitePlayer = gameData["whitePlayer"].toString();
-    QString blackPlayer = gameData["blackPlayer"].toString();
-    QString yourColor = gameData["yourColor"].toString();
-    
-    // Set player color
-    playerColor = (yourColor == "white") ? PieceColor::WHITE : PieceColor::BLACK;
-    
-    // Set game as active
-    gameActive = true;
-    
-    // Clear move history
-    moveHistory.clear();
-    
-    // Clear move recommendations
-    moveRecommendations = QJsonArray();
-    
-    logger->info(QString("Starting new game: %1, You are playing as %2")
-                .arg(currentGameId)
-                .arg(yourColor));
-    
-    // Emit signal
-    emit gameStarted(gameData);
+void GameManager::startNewGame(const QJsonObject& gameData)
+{
+    logger->info("Starting new game");
+
+    try {
+        if (gameActive) {
+            logger->warning("Attempted to start a new game while one is already active");
+            return;
+        }
+
+        // Extract game information
+        currentGameId = gameData["gameId"].toString();
+        QString whitePlayer = gameData["whitePlayer"].toString();
+        QString blackPlayer = gameData["blackPlayer"].toString();
+        QString yourColor = gameData["yourColor"].toString();
+        
+        // Set player color
+        playerColor = (yourColor == "white") ? PieceColor::WHITE : PieceColor::BLACK;
+        
+        // Set game as active
+        gameActive = true;
+        
+        // Clear move history
+        moveHistory.clear();
+        
+        // Clear move recommendations
+        moveRecommendations = QJsonArray();
+        
+        // Store initial game state if available
+        if (gameData.contains("gameState")) {
+            currentGameState = gameData["gameState"].toObject();
+        }
+        
+        logger->info(QString("Starting new game: %1, You are playing as %2")
+                    .arg(currentGameId)
+                    .arg(yourColor));
+        
+        // Emit signal
+        emit gameStarted(gameData);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in GameManager::startNewGame: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in GameManager::startNewGame");
+    }
 }
 
-void GameManager::updateGameState(const QJsonObject& gameState) {
-    // Update current game state
-    currentGameState = gameState;
-    
-    // Parse move history
-    if (gameState.contains("moveHistory")) {
-        parseMoveHistory(gameState["moveHistory"].toArray());
+void GameManager::updateGameState(const QJsonObject& gameState)
+{
+    try {
+        // Store the game ID for validation
+        QString gameId = gameState["gameId"].toString();
+        
+        // Verify this is for the current game
+        if (!currentGameId.isEmpty() && gameId != currentGameId) {
+            logger->warning(QString("Received game state for different game ID: %1 (current: %2)")
+                .arg(gameId).arg(currentGameId));
+            return;
+        }
+        
+        // Update current game state
+        currentGameState = gameState;
+        
+        // Parse move history if available
+        if (gameState.contains("moveHistory")) {
+            parseMoveHistory(gameState["moveHistory"].toArray());
+        }
+        
+        // Emit signal
+        emit gameStateUpdated(gameState);
+        emit moveHistoryUpdated(moveHistory);
+        
+        logger->info("Game state updated successfully");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in GameManager::updateGameState: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in GameManager::updateGameState");
     }
-    
-    // Emit signal
-    emit gameStateUpdated(gameState);
-    emit moveHistoryUpdated(moveHistory);
 }
 
 void GameManager::endGame(const QJsonObject& gameOverData) {
@@ -4445,7 +5032,7 @@ void GameManager::parseMoveHistory(const QJsonArray& moveHistoryArray) {
 // MPChessClient implementation
 MPChessClient::MPChessClient(QWidget* parent)
     : QMainWindow(parent), ui(new Ui::MPChessClient), replayMode(false), currentReplayIndex(-1),
-      connectAction(nullptr), disconnectAction(nullptr), loginDialog(nullptr)
+      connectAction(nullptr), disconnectAction(nullptr), loginDialog(nullptr), playerInfoLabel(nullptr), sidePanel(nullptr), sidePanelLayout(nullptr)
 {    
     // Initialize core components
     logger = new Logger(this);
@@ -4708,62 +5295,315 @@ void MPChessClient::onAuthenticationResult(bool success, const QString& message)
     }
 }
 
+/*
 void MPChessClient::onGameStarted(const QJsonObject& gameData)
 {
-    // Play game start sound
-    audioManager->playSoundEffect(AudioManager::SoundEffect::GAME_START);
-    
-    // Switch to game tab
-    mainStack->setCurrentIndex(1);
-    
-    // Reset the board
-    boardWidget->resetBoard();
-    
-    // Set player color
-    PieceColor playerColor = gameManager->getPlayerColor();
-    boardWidget->setPlayerColor(playerColor);
-    
-    // Set game ID
-    boardWidget->setCurrentGameId(gameManager->getCurrentGameId());
-    
-    // Update game status
-    gameStatusLabel->setText("Game in progress");
-    
-    // Show message
-    QString opponent = (playerColor == PieceColor::WHITE) ? 
-        gameData["blackPlayer"].toString() : gameData["whitePlayer"].toString();
-    showMessage("Game started against " + opponent);
-    
-    // Enable board interaction
-    boardWidget->setInteractive(true);
+    logger->info("onGameStarted...");
+
+    try {
+        // Play game start sound
+        audioManager->playSoundEffect(AudioManager::SoundEffect::GAME_START);
+        
+        // Switch to game tab
+        mainStack->setCurrentIndex(1);
+        
+        // Reset the board
+        boardWidget->resetBoard();
+        
+        // Get player color from gameData
+        QString yourColor = gameData["yourColor"].toString();
+        logger->info(QString("Player color in gameData object: %1").arg(yourColor));
+        
+        // Set player color correctly
+        PieceColor playerColor = (yourColor == "white") ? PieceColor::WHITE : PieceColor::BLACK;
+        logger->info(QString("Setting player color to %1").arg(yourColor));
+        
+        // Set player color in game manager
+        gameManager->startNewGame(gameData);
+        
+        // Set player color in board widget
+        boardWidget->setPlayerColor(playerColor);
+        
+        // Log the board state
+        logger->info(QString("Player color set to %1, board flipped: %2")
+            .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+            .arg(boardWidget->isFlipped() ? "true" : "false"));
+
+        logger->info(QString("Board flipped state: %1").arg(boardWidget->isFlipped() ? "flipped" : "not flipped"));
+
+        // Set game ID
+        boardWidget->setCurrentGameId(gameManager->getCurrentGameId());
+
+        // Update game status
+        gameStatusLabel->setText("Game in progress");
+        
+        // Update game status
+        QString whitePlayer = gameData["whitePlayer"].toString();
+        QString blackPlayer = gameData["blackPlayer"].toString();
+        
+        // Create player info display
+        createPlayerInfoDisplay(whitePlayer, blackPlayer, yourColor);
+        
+        // Show message
+        QString opponent = (playerColor == PieceColor::WHITE) ? blackPlayer : whitePlayer;
+        showMessage("Game started against " + opponent);
+        
+        // Enable board interaction
+        boardWidget->setInteractive(true);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onGameStarted: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onGameStarted");
+    }
+}
+*/
+
+void MPChessClient::onGameStarted(const QJsonObject& gameData)
+{
+    logger->info("onGameStarted...");
+
+    try {
+        // Play game start sound
+        audioManager->playSoundEffect(AudioManager::SoundEffect::GAME_START);
+        
+        // Switch to game tab
+        mainStack->setCurrentIndex(1);
+        
+        // Get player color from gameData
+        QString yourColor = gameData["yourColor"].toString();
+        logger->info(QString("Player color in gameData object: %1").arg(yourColor));
+        
+        // Set player color correctly
+        PieceColor playerColor = (yourColor == "white") ? PieceColor::WHITE : PieceColor::BLACK;
+        logger->info(QString("Setting player color to %1").arg(yourColor));
+        
+        // Start the game in the game manager first
+        gameManager->startNewGame(gameData);
+        
+        // Reset the board before setting player color to avoid recursive resets
+        boardWidget->resetBoard();
+        
+        // Set game ID
+        boardWidget->setCurrentGameId(gameManager->getCurrentGameId());
+        
+        // Now set player color which may flip the board
+        boardWidget->setPlayerColor(playerColor);
+        
+        // Log the board state
+        logger->info(QString("Player color set to %1, board flipped: %2")
+            .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+            .arg(boardWidget->isFlipped() ? "true" : "false"));
+
+        // Update game status
+        gameStatusLabel->setText("Game in progress");
+        
+        // Update game status
+        QString whitePlayer = gameData["whitePlayer"].toString();
+        QString blackPlayer = gameData["blackPlayer"].toString();
+        
+        // Create player info display
+        createPlayerInfoDisplay(whitePlayer, blackPlayer, yourColor);
+        
+        // Show message
+        QString opponent = (playerColor == PieceColor::WHITE) ? blackPlayer : whitePlayer;
+        showMessage("Game started against " + opponent);
+        
+        // Enable board interaction
+        boardWidget->setInteractive(true);
+        
+        // Log board state for debugging
+        boardWidget->logBoardState();
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onGameStarted: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onGameStarted");
+    }
 }
 
-void MPChessClient::onGameStateUpdated(const QJsonObject& gameState) {
-    // Update the board
-    updateBoardFromGameState(gameState);
+void ChessBoardWidget::logBoardState()
+{
+    if (!logger) return;
     
-    // Update captured pieces
-    updateCapturedPieces(gameState);
-    
-    // Update move history
-    updateMoveHistory(gameState);
-    
-    // Update timers
-    updateTimers(gameState);
-    
-    // Check if in check
-    bool isCheck = gameState["isCheck"].toBool();
-    if (isCheck) {
-        // Get king position
-        PieceColor currentTurn = gameState["currentTurn"].toString() == "white" ? 
-            PieceColor::WHITE : PieceColor::BLACK;
+    try {
+        logger->info("=== Current Board State ===");
+        logger->info(QString("Player color: %1").arg(playerColor == PieceColor::WHITE ? "white" : "black"));
+        logger->info(QString("Board flipped: %1").arg(flipped ? "true" : "false"));
+        logger->info(QString("Square size: %1").arg(squareSize));
+        logger->info(QString("Interactive: %1").arg(interactive ? "true" : "false"));
+        logger->info(QString("Current game ID: %1").arg(currentGameId));
         
-        // Highlight the king
-        // Note: In a real implementation, we would need to find the king's position
-        // For now, we'll assume it's provided in the game state
+        // Log piece positions
+        QString boardMap;
+        for (int r = 7; r >= 0; r--) {
+            boardMap += QString::number(r+1) + " ";
+            for (int c = 0; c < 8; c++) {
+                ChessPieceItem* piece = pieces[r][c];
+                if (piece) {
+                    QChar symbol;
+                    switch (piece->getType()) {
+                        case PieceType::PAWN: symbol = 'P'; break;
+                        case PieceType::KNIGHT: symbol = 'N'; break;
+                        case PieceType::BISHOP: symbol = 'B'; break;
+                        case PieceType::ROOK: symbol = 'R'; break;
+                        case PieceType::QUEEN: symbol = 'Q'; break;
+                        case PieceType::KING: symbol = 'K'; break;
+                        default: symbol = '?'; break;
+                    }
+                    if (piece->getColor() == PieceColor::BLACK) {
+                        symbol = symbol.toLower();
+                    }
+                    boardMap += QString(symbol) + " ";
+                } else {
+                    boardMap += ". ";
+                }
+            }
+            boardMap += "\n";
+        }
+        boardMap += "  a b c d e f g h";
+        logger->info("Board layout:\n" + boardMap);
+        logger->info("=========================");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in logBoardState(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in logBoardState()");
+    }
+}
+
+void MPChessClient::createPlayerInfoDisplay(const QString& whitePlayer, const QString& blackPlayer, const QString& yourColor)
+{
+    try {
+        // Create player info text
+        QString infoText = QString("<div style='text-align:center; margin:10px;'>");
         
-        // Play check sound
-        audioManager->playSoundEffect(AudioManager::SoundEffect::CHECK);
+        // Add white player info
+        infoText += QString("<div style='font-weight:bold; font-size:14px;'>White: %1%2</div>")
+            .arg(whitePlayer)
+            .arg(yourColor == "white" ? " (You)" : "");
+        
+        // Add black player info
+        infoText += QString("<div style='font-weight:bold; font-size:14px;'>Black: %1%2</div>")
+            .arg(blackPlayer)
+            .arg(yourColor == "black" ? " (You)" : "");
+        
+        // Add current turn indicator
+        infoText += QString("<div style='margin-top:10px;'>Current Turn: <span style='color:%1; font-weight:bold;'>%2</span></div>")
+            .arg("green")
+            .arg("White");
+        
+        infoText += "</div>";
+        
+        // Create or update the player info label
+        if (!playerInfoLabel) {
+            playerInfoLabel = new QLabel(sidePanel);
+            playerInfoLabel->setTextFormat(Qt::RichText);
+            playerInfoLabel->setAlignment(Qt::AlignCenter);
+            playerInfoLabel->setMinimumHeight(100);
+            playerInfoLabel->setStyleSheet("background-color: rgba(255,255,255,0.7); border-radius: 5px; padding: 5px;");
+            
+            // Add to layout at the top
+            sidePanelLayout->insertWidget(0, playerInfoLabel);
+        }
+        
+        playerInfoLabel->setText(infoText);
+        playerInfoLabel->show(); // Make sure it's visible
+        
+        logger->info("Created player info display");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in createPlayerInfoDisplay: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in createPlayerInfoDisplay");
+    }
+}
+
+void MPChessClient::updatePlayerInfoDisplay(const QString& currentTurn)
+{
+    try {
+        if (!playerInfoLabel) {
+            logger->warning("Player info label is null in updatePlayerInfoDisplay");
+            return;
+        }
+        
+        // Get current text
+        QString currentText = playerInfoLabel->text();
+        
+        // Update the current turn part
+        QString newText;
+        if (currentText.contains("Current Turn:")) {
+            newText = currentText.replace(
+                QRegularExpression("Current Turn: <span style='color:[^;]+; font-weight:bold;'>[^<]+</span>"),
+                QString("Current Turn: <span style='color:%1; font-weight:bold;'>%2</span>")
+                    .arg(currentTurn == "white" ? "green" : "blue")
+                    .arg(currentTurn == "white" ? "White" : "Black")
+            );
+        }
+        
+        if (!newText.isEmpty()) {
+            playerInfoLabel->setText(newText);
+        }
+        
+        logger->info(QString("Updated player info display: Current turn=%1").arg(currentTurn));
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in updatePlayerInfoDisplay: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in updatePlayerInfoDisplay");
+    }
+}
+
+void MPChessClient::onGameStateUpdated(const QJsonObject& gameState)
+{
+    static bool isProcessingGameState = false;
+    
+    try
+    {
+        // Prevent recursive calls
+        if (isProcessingGameState) {
+            logger->warning("Recursive call to onGameStateUpdated detected and prevented");
+            return;
+        }
+        
+        isProcessingGameState = true;
+        logger->info("onGameStateUpdated - Processing game state update");
+        
+        // Update the game manager first
+        gameManager->updateGameState(gameState);
+        
+        // Update the board
+        updateBoardFromGameState(gameState);
+        
+        // Update captured pieces
+        updateCapturedPieces(gameState);
+        
+        // Update move history
+        updateMoveHistory(gameState);
+        
+        // Update timers
+        updateTimers(gameState);
+        
+        // Update player info display with current turn
+        updatePlayerInfoDisplay(gameState["currentTurn"].toString());
+        
+        // Check if in check
+        bool isCheck = gameState["isCheck"].toBool();
+        if (isCheck)
+        {
+            // Play check sound
+            audioManager->playSoundEffect(AudioManager::SoundEffect::CHECK);
+            
+            logger->info("Player is in check");
+        }
+        
+        // Log board state for debugging
+        boardWidget->logBoardState();
+        
+        isProcessingGameState = false;
+    } catch (const std::exception& e)
+    {
+        isProcessingGameState = false;
+        logger->error(QString("Exception in onGameStateUpdated: %1").arg(e.what()));
+    } catch (...)
+    {
+        isProcessingGameState = false;
+        logger->error("Unknown exception in onGameStateUpdated");
     }
 }
 
@@ -4818,7 +5658,8 @@ void MPChessClient::onMoveRecommendationsReceived(const QJsonArray& recommendati
     gameManager->setMoveRecommendations(recommendations);
 }
 
-void MPChessClient::onMoveRequested(const QString& gameId, const ChessMove& move) {
+void MPChessClient::onMoveRequested(const QString& gameId, const ChessMove& move)
+{
     // Check if we're in replay mode
     if (replayMode) {
         return;
@@ -4830,6 +5671,15 @@ void MPChessClient::onMoveRequested(const QString& gameId, const ChessMove& move
     
     if (currentTurn != gameManager->getPlayerColor()) {
         showMessage("It's not your turn", true);
+        
+        // Reset the piece to its original position
+        Position from = move.getFrom();
+        ChessPieceItem* piece = boardWidget->getPieceAt(from);
+        if (piece) {
+            Position boardPos = boardWidget->logicalToBoard(from);
+            piece->setPos(boardPos.col * boardWidget->getSquareSize(), 
+                         boardPos.row * boardWidget->getSquareSize());
+        }
         return;
     }
     
@@ -4837,9 +5687,30 @@ void MPChessClient::onMoveRequested(const QString& gameId, const ChessMove& move
     gameManager->makeMove(move);
 }
 
-void MPChessClient::onSquareClicked(const Position& pos) {
+void MPChessClient::onSquareClicked(const Position& pos)
+{
     // Handle square click
     // This is used for selecting pieces and making moves
+}
+
+void MPChessClient::onCheckTurn(PieceColor color)
+{
+    // Check if it's this player's turn
+    PieceColor currentTurn = gameManager->getCurrentGameState()["currentTurn"].toString() == "white" ? 
+        PieceColor::WHITE : PieceColor::BLACK;
+    
+    if (currentTurn != color) {
+        showMessage("It's not your turn", true);
+        
+        // Clear selection in board widget
+        boardWidget->clearSelection();
+    }
+}
+
+void ChessBoardWidget::clearSelection()
+{
+    selectedPosition = Position();
+    clearHighlights();
 }
 
 void MPChessClient::onResignClicked() {
@@ -5375,9 +6246,19 @@ void MPChessClient::createGameUI()
     boardWidget->setMinimumSize(400, 400);
     
     logger->info("In MPChessClient::createGameUI() -- Creating sidePanel");
-    // Create side panel
-    QWidget* sidePanel = new QWidget(gameSplitter);
-    QVBoxLayout* sidePanelLayout = new QVBoxLayout(sidePanel);
+    // Create side panel - store the pointer as a class member
+    sidePanel = new QWidget(gameSplitter);
+    sidePanelLayout = new QVBoxLayout(sidePanel); // Store the layout pointer as a class member
+
+    // Create player info label (initially empty)
+    logger->info("In MPChessClient::createGameUI() -- Creating playerInfoLabel");
+    playerInfoLabel = new QLabel(sidePanel);
+    playerInfoLabel->setTextFormat(Qt::RichText);
+    playerInfoLabel->setAlignment(Qt::AlignCenter);
+    playerInfoLabel->setMinimumHeight(80);
+    playerInfoLabel->setStyleSheet("background-color: rgba(240,240,240,0.7); border-radius: 5px; padding: 5px; margin: 5px;");
+    playerInfoLabel->setWordWrap(true);
+    playerInfoLabel->hide(); // Hide initially until game starts
 
     logger->info("In MPChessClient::createGameUI() -- Creating capturedPiecesWidget");
     // Create captured pieces widget
@@ -5410,7 +6291,8 @@ void MPChessClient::createGameUI()
     chatInput->setPlaceholderText("Type a message...");
     
     logger->info("In MPChessClient::createGameUI() -- Adding widgets to side panel");
-    // Add widgets to side panel
+    // Add widgets to side panel - add playerInfoLabel first
+    sidePanelLayout->addWidget(playerInfoLabel);
     sidePanelLayout->addWidget(capturedPiecesWidget);
     sidePanelLayout->addWidget(gameTimerWidget);
     sidePanelLayout->addLayout(gameControlsLayout);
@@ -5443,81 +6325,128 @@ void MPChessClient::createGameUI()
     // Connect signals
     connect(boardWidget, &ChessBoardWidget::moveRequested, this, &MPChessClient::onMoveRequested);
     connect(boardWidget, &ChessBoardWidget::squareClicked, this, &MPChessClient::onSquareClicked);
+    connect(boardWidget, &ChessBoardWidget::checkTurn, this, &MPChessClient::onCheckTurn);
     connect(resignButton, &QPushButton::clicked, this, &MPChessClient::onResignClicked);
     connect(drawButton, &QPushButton::clicked, this, &MPChessClient::onDrawOfferClicked);
 
     logger->info("In MPChessClient::createGameUI() -- Finished");
 }
 
-void MPChessClient::updateBoardFromGameState(const QJsonObject& gameState) {
-    // Get board data
-    QJsonArray boardArray = gameState["board"].toArray();
-    
-    // Clear the board
-    boardWidget->resetBoard();
-    
-    // Set pieces
-    for (int r = 0; r < 8; ++r) {
-        QJsonArray rowArray = boardArray[r].toArray();
-        for (int c = 0; c < 8; ++c) {
-            QJsonObject pieceObj = rowArray[c].toObject();
-            QString type = pieceObj["type"].toString();
-            QString color = pieceObj["color"].toString();
-            
-            if (type != "empty") {
-                PieceType pieceType;
-                if (type == "pawn") pieceType = PieceType::PAWN;
-                else if (type == "knight") pieceType = PieceType::KNIGHT;
-                else if (type == "bishop") pieceType = PieceType::BISHOP;
-                else if (type == "rook") pieceType = PieceType::ROOK;
-                else if (type == "queen") pieceType = PieceType::QUEEN;
-                else if (type == "king") pieceType = PieceType::KING;
-                else continue;
-                
-                PieceColor pieceColor = (color == "white") ? PieceColor::WHITE : PieceColor::BLACK;
-                
-                boardWidget->setPiece(Position(r, c), pieceType, pieceColor);
+void MPChessClient::updateBoardFromGameState(const QJsonObject& gameState)
+{
+    try {
+        logger->info("updateBoardFromGameState - Starting board update");
+        
+        // Get board data
+        if (!gameState.contains("board")) {
+            logger->warning("Game state does not contain board data");
+            return;
+        }
+        
+        QJsonArray boardArray = gameState["board"].toArray();
+        if (boardArray.size() != 8) {
+            logger->warning(QString("Invalid board size: %1").arg(boardArray.size()));
+            return;
+        }
+        
+        // Clear the board but don't reset player color or flip state
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                boardWidget->removePiece(Position(r, c));
             }
         }
-    }
-    
-    // Highlight last move if available
-    if (gameState.contains("moveHistory") && !gameState["moveHistory"].toArray().isEmpty()) {
-        QJsonArray moveHistory = gameState["moveHistory"].toArray();
-        QJsonObject lastMove = moveHistory.last().toObject();
         
-        QString from = lastMove["from"].toString();
-        QString to = lastMove["to"].toString();
-        
-        Position fromPos = Position::fromAlgebraic(from);
-        Position toPos = Position::fromAlgebraic(to);
-        
-        boardWidget->highlightLastMove(fromPos, toPos);
-    }
-    
-    // Highlight check if in check
-    if (gameState["isCheck"].toBool()) {
-        // Find the king of the current player
-        PieceColor currentTurn = gameState["currentTurn"].toString() == "white" ? 
-            PieceColor::WHITE : PieceColor::BLACK;
-        
-        // In a real implementation, we would need to find the king's position
-        // For now, we'll just highlight the king if we find it
+        // Set pieces
         for (int r = 0; r < 8; ++r) {
             QJsonArray rowArray = boardArray[r].toArray();
+            if (rowArray.size() != 8) {
+                logger->warning(QString("Invalid row size at row %1: %2").arg(r).arg(rowArray.size()));
+                continue;
+            }
+            
             for (int c = 0; c < 8; ++c) {
                 QJsonObject pieceObj = rowArray[c].toObject();
+                if (pieceObj.isEmpty()) {
+                    logger->warning(QString("Empty piece object at position (%1,%2)").arg(r).arg(c));
+                    continue;
+                }
+                
                 QString type = pieceObj["type"].toString();
                 QString color = pieceObj["color"].toString();
                 
-                if (type == "king" && 
-                    ((color == "white" && currentTurn == PieceColor::WHITE) ||
-                     (color == "black" && currentTurn == PieceColor::BLACK))) {
-                    boardWidget->highlightCheck(Position(r, c));
-                    break;
+                if (type != "empty") {
+                    PieceType pieceType;
+                    if (type == "pawn") pieceType = PieceType::PAWN;
+                    else if (type == "knight") pieceType = PieceType::KNIGHT;
+                    else if (type == "bishop") pieceType = PieceType::BISHOP;
+                    else if (type == "rook") pieceType = PieceType::ROOK;
+                    else if (type == "queen") pieceType = PieceType::QUEEN;
+                    else if (type == "king") pieceType = PieceType::KING;
+                    else {
+                        logger->warning(QString("Unknown piece type: %1 at position (%2,%3)")
+                            .arg(type).arg(r).arg(c));
+                        continue;
+                    }
+                    
+                    PieceColor pieceColor = (color == "white") ? PieceColor::WHITE : PieceColor::BLACK;
+                    
+                    // Set the piece at the correct position
+                    boardWidget->setPiece(Position(r, c), pieceType, pieceColor);
                 }
             }
         }
+        
+        // Highlight last move if available
+        if (gameState.contains("moveHistory") && !gameState["moveHistory"].toArray().isEmpty())
+        {
+            QJsonArray moveHistory = gameState["moveHistory"].toArray();
+            QJsonObject lastMove = moveHistory.last().toObject();
+            
+            if (lastMove.contains("from") && lastMove.contains("to")) {
+                QString from = lastMove["from"].toString();
+                QString to = lastMove["to"].toString();
+                
+                Position fromPos = Position::fromAlgebraic(from);
+                Position toPos = Position::fromAlgebraic(to);
+                
+                if (fromPos.isValid() && toPos.isValid()) {
+                    boardWidget->highlightLastMove(fromPos, toPos);
+                    logger->info(QString("Highlighted last move from %1 to %2").arg(from).arg(to));
+                }
+            }
+        }
+        
+        // Highlight check if in check
+        if (gameState["isCheck"].toBool()) {
+            // Find the king of the current player
+            PieceColor currentTurn = gameState["currentTurn"].toString() == "white" ? 
+                PieceColor::WHITE : PieceColor::BLACK;
+            
+            // In a real implementation, we would need to find the king's position
+            // For now, we'll just highlight the king if we find it
+            for (int r = 0; r < 8; ++r) {
+                QJsonArray rowArray = boardArray[r].toArray();
+                for (int c = 0; c < 8; ++c) {
+                    QJsonObject pieceObj = rowArray[c].toObject();
+                    QString type = pieceObj["type"].toString();
+                    QString color = pieceObj["color"].toString();
+                    
+                    if (type == "king" && 
+                        ((color == "white" && currentTurn == PieceColor::WHITE) ||
+                         (color == "black" && currentTurn == PieceColor::BLACK))) {
+                        boardWidget->highlightCheck(Position(r, c));
+                        logger->info(QString("Highlighted king in check at position (%1,%2)").arg(r).arg(c));
+                        break;
+                    }
+                }
+            }
+        }
+        
+        logger->info("updateBoardFromGameState - Board update completed");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in updateBoardFromGameState: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in updateBoardFromGameState");
     }
 }
 
