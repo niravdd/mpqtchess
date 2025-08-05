@@ -723,7 +723,7 @@ public:
 signals:
     void moveRequested(const QString& gameId, const ChessMove& move);
     void squareClicked(const Position& pos);
-    void checkTurn(PieceColor color); 
+    void checkTurn(PieceColor color, bool* isPlayerTurn);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -1248,7 +1248,7 @@ private slots:
     // UI interaction slots
     void onMoveRequested(const QString& gameId, const ChessMove& move);
     void onSquareClicked(const Position& pos);
-    void onCheckTurn(PieceColor color);
+    void onCheckTurn(PieceColor color, bool* isPlayerTurn);
     void onResignClicked();
     void onDrawOfferClicked();
     void onDrawOfferReceived(const QString& offeredBy);
@@ -1287,55 +1287,56 @@ private slots:
     void onRequestLeaderboard(bool allPlayers);
 
 private:
-    Ui::MPChessClient* ui;
+    Ui::MPChessClient* ui = nullptr;
     
     // Core components
-    Logger* logger;
-    NetworkManager* networkManager;
-    GameManager* gameManager;
-    ThemeManager* themeManager;
-    AudioManager* audioManager;
+    Logger* logger = nullptr;
+    NetworkManager* networkManager = nullptr;
+    GameManager* gameManager = nullptr;
+    ThemeManager* themeManager = nullptr;
+    AudioManager* audioManager = nullptr;
     
     // UI components
-    QStackedWidget* mainStack;
-    LoginDialog* loginDialog;
+    QStackedWidget* mainStack = nullptr;
+    LoginDialog* loginDialog = nullptr;
     
     // Game UI
-    ChessBoardWidget* boardWidget;
-    MoveHistoryWidget* moveHistoryWidget;
-    CapturedPiecesWidget* capturedPiecesWidget;
-    GameTimerWidget* gameTimerWidget;
-    AnalysisWidget* analysisWidget;
+    ChessBoardWidget* boardWidget = nullptr;
+    MoveHistoryWidget* moveHistoryWidget = nullptr;
+    CapturedPiecesWidget* capturedPiecesWidget = nullptr;
+    GameTimerWidget* gameTimerWidget = nullptr;
+    AnalysisWidget* analysisWidget = nullptr;
     
     // Other UI components
-    ProfileWidget* profileWidget;
-    LeaderboardWidget* leaderboardWidget;
-    MatchmakingWidget* matchmakingWidget;
-    GameHistoryWidget* gameHistoryWidget;
+    ProfileWidget* profileWidget = nullptr;
+    LeaderboardWidget* leaderboardWidget = nullptr;
+    MatchmakingWidget* matchmakingWidget = nullptr;
+    GameHistoryWidget* gameHistoryWidget = nullptr;
     
     // Status indicators
-    QLabel* connectionStatusLabel;
-    QLabel* gameStatusLabel;
+    QLabel* connectionStatusLabel = nullptr;
+    QLabel* gameStatusLabel = nullptr;
+    QTextEdit* statusMessagesWindow = nullptr;
 
     // Connection actions
-    QAction* connectAction;
-    QAction* disconnectAction;
+    QAction* connectAction = nullptr;
+    QAction* disconnectAction = nullptr;
 
     // Chat
-    QTextEdit* chatDisplay;
-    QLineEdit* chatInput;
+    QTextEdit* chatDisplay = nullptr;
+    QLineEdit* chatInput = nullptr;
     
     // Game replay controls
-    QSlider* replaySlider;
-    QPushButton* replayPrevButton;
-    QPushButton* replayPlayButton;
-    QPushButton* replayNextButton;
+    QSlider* replaySlider = nullptr;
+    QPushButton* replayPrevButton = nullptr;
+    QPushButton* replayPlayButton = nullptr;
+    QPushButton* replayNextButton = nullptr;
     bool replayMode;
     int currentReplayIndex;
-    QLabel* playerInfoLabel;
-    QWidget* sidePanel;
-    QVBoxLayout* sidePanelLayout;
-    
+    QLabel* playerInfoLabel = nullptr;
+    QWidget* sidePanel = nullptr;
+    QVBoxLayout* sidePanelLayout = nullptr;
+
     void setupUI();
     void createMenus();
     void createStatusBar();
@@ -1352,6 +1353,7 @@ private:
     
     void showLoginDialog();
     void showMessage(const QString& message, bool error = false);
+    void appendStatusMessage(const QString& message, bool isError = false);
     
     void enterReplayMode(const QVector<ChessMove>& moves);
     void exitReplayMode();

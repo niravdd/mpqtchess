@@ -1717,17 +1717,21 @@ void ChessBoardWidget::resetBoard()
             logger->info("ChessBoardWidget::resetBoard() - Created new scene");
         }
 
-        // Clear the scene safely
-        logger->info("ChessBoardWidget::resetBoard() - Clearing scene");
-        scene->clear();
+        // Store current flip state and player color
+        bool currentFlipped = flipped;
+        PieceColor currentPlayerColor = playerColor;
 
-        logger->info("ChessBoardWidget::resetBoard() - Resetting pieces array");
-        // Reset pieces array
+        logger->info("ChessBoardWidget::resetBoard() - Clearing pieces array first");
+        // Clear pieces array BEFORE clearing scene to avoid dangling pointers
         for (int r = 0; r < 8; ++r) {
             for (int c = 0; c < 8; ++c) {
-                pieces[r][c] = nullptr;
+                pieces[r][c] = nullptr;  // Clear pointers first
             }
         }
+
+        logger->info("ChessBoardWidget::resetBoard() - Clearing scene");
+        // Now clear the scene safely
+        scene->clear();
         
         logger->info("ChessBoardWidget::resetBoard() - Clearing highlightItems");
         // Clear highlight items
@@ -1740,6 +1744,10 @@ void ChessBoardWidget::resetBoard()
         // Set up the board again
         setupBoard();
 
+        // Restore flip state and player color
+        flipped = currentFlipped;
+        playerColor = currentPlayerColor;
+
         logger->info("ChessBoardWidget::resetBoard() - Finished");
     } catch (const std::exception& e) {
         logger->error(QString("Exception in resetBoard(): %1").arg(e.what()));
@@ -1750,32 +1758,42 @@ void ChessBoardWidget::resetBoard()
 
 void ChessBoardWidget::setupInitialPosition()
 {
-    // Set up white pieces
-    setPiece(Position(0, 0), PieceType::ROOK, PieceColor::WHITE);
-    setPiece(Position(0, 1), PieceType::KNIGHT, PieceColor::WHITE);
-    setPiece(Position(0, 2), PieceType::BISHOP, PieceColor::WHITE);
-    setPiece(Position(0, 3), PieceType::QUEEN, PieceColor::WHITE);
-    setPiece(Position(0, 4), PieceType::KING, PieceColor::WHITE);
-    setPiece(Position(0, 5), PieceType::BISHOP, PieceColor::WHITE);
-    setPiece(Position(0, 6), PieceType::KNIGHT, PieceColor::WHITE);
-    setPiece(Position(0, 7), PieceType::ROOK, PieceColor::WHITE);
-    
-    for (int c = 0; c < 8; ++c) {
-        setPiece(Position(1, c), PieceType::PAWN, PieceColor::WHITE);
-    }
-    
-    // Set up black pieces
-    setPiece(Position(7, 0), PieceType::ROOK, PieceColor::BLACK);
-    setPiece(Position(7, 1), PieceType::KNIGHT, PieceColor::BLACK);
-    setPiece(Position(7, 2), PieceType::BISHOP, PieceColor::BLACK);
-    setPiece(Position(7, 3), PieceType::QUEEN, PieceColor::BLACK);
-    setPiece(Position(7, 4), PieceType::KING, PieceColor::BLACK);
-    setPiece(Position(7, 5), PieceType::BISHOP, PieceColor::BLACK);
-    setPiece(Position(7, 6), PieceType::KNIGHT, PieceColor::BLACK);
-    setPiece(Position(7, 7), PieceType::ROOK, PieceColor::BLACK);
-    
-    for (int c = 0; c < 8; ++c) {
-        setPiece(Position(6, c), PieceType::PAWN, PieceColor::BLACK);
+    try {
+        logger->info("ChessBoardWidget::setupInitialPosition() - Setting up initial board position");
+        
+        // Set up white pieces
+        setPiece(Position(0, 0), PieceType::ROOK, PieceColor::WHITE);
+        setPiece(Position(0, 1), PieceType::KNIGHT, PieceColor::WHITE);
+        setPiece(Position(0, 2), PieceType::BISHOP, PieceColor::WHITE);
+        setPiece(Position(0, 3), PieceType::QUEEN, PieceColor::WHITE);
+        setPiece(Position(0, 4), PieceType::KING, PieceColor::WHITE);
+        setPiece(Position(0, 5), PieceType::BISHOP, PieceColor::WHITE);
+        setPiece(Position(0, 6), PieceType::KNIGHT, PieceColor::WHITE);
+        setPiece(Position(0, 7), PieceType::ROOK, PieceColor::WHITE);
+        
+        for (int c = 0; c < 8; ++c) {
+            setPiece(Position(1, c), PieceType::PAWN, PieceColor::WHITE);
+        }
+        
+        // Set up black pieces
+        setPiece(Position(7, 0), PieceType::ROOK, PieceColor::BLACK);
+        setPiece(Position(7, 1), PieceType::KNIGHT, PieceColor::BLACK);
+        setPiece(Position(7, 2), PieceType::BISHOP, PieceColor::BLACK);
+        setPiece(Position(7, 3), PieceType::QUEEN, PieceColor::BLACK);
+        setPiece(Position(7, 4), PieceType::KING, PieceColor::BLACK);
+        setPiece(Position(7, 5), PieceType::BISHOP, PieceColor::BLACK);
+        setPiece(Position(7, 6), PieceType::KNIGHT, PieceColor::BLACK);
+        setPiece(Position(7, 7), PieceType::ROOK, PieceColor::BLACK);
+        
+        for (int c = 0; c < 8; ++c) {
+            setPiece(Position(6, c), PieceType::PAWN, PieceColor::BLACK);
+        }
+        
+        logger->info("ChessBoardWidget::setupInitialPosition() - Initial position set up successfully");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in setupInitialPosition(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in setupInitialPosition()");
     }
 }
 
@@ -1922,24 +1940,38 @@ void ChessBoardWidget::highlightCheck(const Position& kingPos)
     highlightSquare(kingPos, themeManager->getCheckHighlightColor());
 }
 
+/*
 void ChessBoardWidget::setPlayerColor(PieceColor color)
 {
     try
     {
+        if (logger)
+        {
+            logger->info(QString("[Starting ChessBoardWidget::setPlayerColor()]: Old player colour is %1, board flipped state: flipped = %2")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(flipped ? "true" : "false"));
+        }
+
         // Store the old color to check if we're actually changing it
         PieceColor oldColor = playerColor;
         playerColor = color;
         
         // Determine if board should be flipped based on player color
         bool shouldFlip = (playerColor == PieceColor::BLACK);
-        
+
+        if (logger)
+        {
+            logger->info(QString("[Next check ChessBoardWidget::setPlayerColor()]: Player colour is now set to %1, should board be flipped?: shouldFlip = %2")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(shouldFlip ? "true" : "false"));
+        }
+
         // Only update the board if the flip state is changing
         if (flipped != shouldFlip)
         {
             flipped = shouldFlip;
             
-            // Instead of calling resetBoard() which causes recursion,
-            // just update the board layout without recreating everything
+            // Update the board layout without recreating everything
             updateBoardLayout();
             
             if (logger)
@@ -1961,6 +1993,80 @@ void ChessBoardWidget::setPlayerColor(PieceColor color)
             logger->info(QString("Player color set to %1, board flipped: %2")
                 .arg(playerColor == PieceColor::WHITE ? "white" : "black")
                 .arg(flipped ? "true" : "false"));
+        }
+    } catch (const std::exception& e)
+    {
+        if (logger)
+        {
+            logger->error(QString("Exception in setPlayerColor: %1").arg(e.what()));
+        }
+    } catch (...)
+    {
+        if (logger)
+        {
+            logger->error("Unknown exception in setPlayerColor");
+        }
+    }
+}
+*/
+
+void ChessBoardWidget::setPlayerColor(PieceColor color)
+{
+    try
+    {
+        if (logger)
+        {
+            logger->info(QString("[Starting ChessBoardWidget::setPlayerColor()]: Old player colour is %1, board flipped state: flipped = %2")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(flipped ? "true" : "false"));
+        }
+
+        // Store the old color to check if we're actually changing it
+        PieceColor oldColor = playerColor;
+        playerColor = color;
+        
+        // Determine if board should be flipped based on player color
+        // White player should see white pieces at bottom (not flipped)
+        // Black player should see black pieces at bottom (flipped)
+        bool shouldFlip = (playerColor == PieceColor::BLACK);
+
+        if (logger)
+        {
+            logger->info(QString("[Next check ChessBoardWidget::setPlayerColor()]: Player colour is now set to %1, should board be flipped?: shouldFlip = %2")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(shouldFlip ? "true" : "false"));
+        }
+
+        // Only update the board if the flip state is changing
+        if (flipped != shouldFlip)
+        {
+            flipped = shouldFlip;
+            
+            // Update the board layout without recreating everything
+            updateBoardLayout();
+            
+            if (logger)
+            {
+                logger->info(QString("Board flipped: %1 - Player %2 now sees their pieces at the bottom")
+                    .arg(flipped ? "true" : "false")
+                    .arg(playerColor == PieceColor::WHITE ? "white" : "black"));
+            }
+        }
+        else if (oldColor != playerColor && logger)
+        {
+            // Log that color changed but flip state didn't
+            logger->info(QString("Player color changed from %1 to %2, but board flip state remains %3")
+                .arg(oldColor == PieceColor::WHITE ? "white" : "black")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(flipped ? "flipped" : "not flipped"));
+        }
+        
+        if (logger)
+        {
+            logger->info(QString("Player color set to %1, board flipped: %2 - Player sees their %3 pieces at bottom")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
+                .arg(flipped ? "true" : "false")
+                .arg(playerColor == PieceColor::WHITE ? "white" : "black"));
         }
     } catch (const std::exception& e)
     {
@@ -2008,31 +2114,79 @@ void ChessBoardWidget::updateBoardLayout()
             Position boardPos(row, col);
             Position logicalPos = boardToLogical(boardPos);
             
+            // Store the color of the highlight
+            QColor highlightColor = item->brush().color();
+            
             // Remove old highlight
             scene->removeItem(item);
             delete item;
             
             // Add new highlight at the correct position
-            highlightSquare(logicalPos, item->brush().color());
+            highlightSquare(logicalPos, highlightColor);
         }
         
         // Update hint positions if any
         QVector<QGraphicsEllipseItem*> oldHints = hintItems;
         hintItems.clear();
         
+        // Store positions and colors of hints to recreate them
+        QVector<QPair<Position, QColor>> hintsToRecreate;
+        
         for (QGraphicsEllipseItem* item : oldHints) {
             // Get the logical position of this hint
             QRectF rect = item->rect();
-            int col = static_cast<int>((rect.x() - squareSize * 0.3) / squareSize);
-            int row = static_cast<int>((rect.y() - squareSize * 0.3) / squareSize);
+            // Calculate the center of the hint circle to get the square position
+            qreal centerX = rect.x() + rect.width() / 2;
+            qreal centerY = rect.y() + rect.height() / 2;
+            int col = static_cast<int>(centerX / squareSize);
+            int row = static_cast<int>(centerY / squareSize);
+            
             Position boardPos(row, col);
             Position logicalPos = boardToLogical(boardPos);
+            
+            // Store the color of the hint
+            QColor hintColor = item->brush().color();
+            
+            // Store the position and color for recreation
+            hintsToRecreate.append(qMakePair(logicalPos, hintColor));
             
             // Remove old hint
             scene->removeItem(item);
             delete item;
+        }
+        
+        // Recreate all hints at their correct positions
+        for (const auto& hintInfo : hintsToRecreate) {
+            Position pos = hintInfo.first;
+            QColor color = hintInfo.second;
             
-            // We'll need to recreate the hints later if needed
+            // Convert logical position to board position with the new orientation
+            Position boardPos = logicalToBoard(pos);
+            
+            // Create a new hint circle
+            QGraphicsEllipseItem* hint = new QGraphicsEllipseItem(
+                boardPos.col * squareSize + squareSize * 0.3,
+                boardPos.row * squareSize + squareSize * 0.3,
+                squareSize * 0.4,
+                squareSize * 0.4
+            );
+            
+            hint->setBrush(QBrush(color));
+            hint->setPen(Qt::NoPen);
+            hint->setOpacity(0.6);
+            hint->setZValue(0.5); // Above squares but below pieces
+            
+            scene->addItem(hint);
+            hintItems.append(hint);
+        }
+        
+        // If there was a selected position, we may need to update the highlights for valid moves
+        if (selectedPosition.isValid()) {
+            // Clear existing highlights first
+            clearHighlights();
+            
+            // Re-highlight the selected piece's square and valid moves
+            highlightValidMoves(selectedPosition);
         }
         
         if (logger) logger->info("ChessBoardWidget::updateBoardLayout() - Finished");
@@ -2171,23 +2325,33 @@ void ChessBoardWidget::mousePressEvent(QMouseEvent* event)
             
             if (piece && piece->getColor() == playerColor)
             {
-                // Check if it's our turn (emit signal to let the game manager check)
-                emit checkTurn(piece->getColor());
+                // First check if it's our turn before allowing selection
+                bool isPlayerTurn = false;
 
-                // Start dragging the piece
-                selectedPosition = pos;
-                dragStartPosition = pos;
-                
-                // Highlight valid move destinations
-                highlightValidMoves(pos);
-                // Log the selection
-                if (logger)
-                {
-                    logger->debug(QString("Selected piece at (%1,%2) of type %3 and color %4")
-                        .arg(pos.row)
-                        .arg(pos.col)
-                        .arg(static_cast<int>(piece->getType()))
-                        .arg(piece->getColor() == PieceColor::WHITE ? "white" : "black"));
+                // Check if it's our turn (emit signal to let the game manager check)
+                emit checkTurn(piece->getColor(), &isPlayerTurn);
+
+                 // Only proceed if it's the player's turn
+                if (isPlayerTurn) {
+                    // Store the selected position
+                    selectedPosition = pos;
+                    dragStartPosition = pos;
+                    
+                    // Highlight valid moves
+                    highlightValidMoves(pos);
+                    
+                    // Log the selection
+                    if (logger)
+                    {
+                        logger->debug(QString("Selected piece at (%1,%2) of type %3 and color %4")
+                            .arg(pos.row)
+                            .arg(pos.col)
+                            .arg(static_cast<int>(piece->getType()))
+                            .arg(piece->getColor() == PieceColor::WHITE ? "white" : "black"));
+                    }
+                } else {
+                    // Not player's turn - show message
+                    if (logger) logger->error("It's not your turn");
                 }
             } else {
                 // Clicked on opponent's piece or empty square
@@ -2521,7 +2685,11 @@ void ChessBoardWidget::mouseReleaseEvent(QMouseEvent* event)
         ChessPieceItem* piece = getPieceAt(selectedPosition);
         if (piece)
         {
-            if (targetPos.isValid() && targetPos != selectedPosition)
+            // Check if it's player's turn before allowing move
+            bool isPlayerTurn = false;
+            emit checkTurn(piece->getColor(), &isPlayerTurn);
+
+            if (isPlayerTurn && targetPos.isValid() && targetPos != selectedPosition)
             {
                 // Try to move the piece
                 handleDrop(targetPos);
@@ -2636,54 +2804,79 @@ void ChessBoardWidget::updateBoardSize()
 
 void ChessBoardWidget::createSquares()
 {
-    // Remove existing squares
-    for (QGraphicsItem* item : scene->items()) {
-        if (dynamic_cast<QGraphicsRectItem*>(item) && item->zValue() == 0) {
-            scene->removeItem(item);
-            delete item;
+    try {
+        // Remove existing squares and labels
+        for (QGraphicsItem* item : scene->items()) {
+            if (dynamic_cast<QGraphicsRectItem*>(item) && item->zValue() == 0) {
+                scene->removeItem(item);
+                delete item;
+            }
+            if (dynamic_cast<QGraphicsTextItem*>(item) && item->zValue() == 0.1) {
+                scene->removeItem(item);
+                delete item;
+            }
         }
-    }
-    
-    // Create new squares
-    QColor lightColor = themeManager->getLightSquareColor();
-    QColor darkColor = themeManager->getDarkSquareColor();
-    
-    for (int r = 0; r < 8; ++r) {
+        
+        // Create new squares
+        QColor lightColor = themeManager->getLightSquareColor();
+        QColor darkColor = themeManager->getDarkSquareColor();
+        
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                QGraphicsRectItem* square = new QGraphicsRectItem(c * squareSize, r * squareSize, squareSize, squareSize);
+                square->setBrush(((r + c) % 2 == 0) ? lightColor : darkColor);
+                square->setPen(Qt::NoPen);
+                square->setZValue(0); // Ensure squares are below pieces
+                scene->addItem(square);
+            }
+        }
+        
+        // Add rank and file labels with correct orientation
+        QFont font;
+        font.setPointSize(squareSize / 5);
+        
+        for (int r = 0; r < 8; ++r) {
+            // Rank labels (1-8)
+            int displayRank = flipped ? (r + 1) : (8 - r);
+            QGraphicsTextItem* rankLabel = new QGraphicsTextItem(QString::number(displayRank));
+            rankLabel->setFont(font);
+            rankLabel->setDefaultTextColor((r % 2 == 0) ? darkColor : lightColor);
+            rankLabel->setPos(squareSize * 0.05, r * squareSize + squareSize * 0.05);
+            rankLabel->setZValue(0.1);
+            scene->addItem(rankLabel);
+        }
+        
         for (int c = 0; c < 8; ++c) {
-            QGraphicsRectItem* square = new QGraphicsRectItem(c * squareSize, r * squareSize, squareSize, squareSize);
-            square->setBrush(((r + c) % 2 == 0) ? lightColor : darkColor);
-            square->setPen(Qt::NoPen);
-            square->setZValue(0); // Ensure squares are below pieces
-            scene->addItem(square);
+            // File labels (a-h)
+            char displayFile = flipped ? ('h' - c) : ('a' + c);
+            QGraphicsTextItem* fileLabel = new QGraphicsTextItem(QString(QChar(displayFile)));
+            fileLabel->setFont(font);
+            fileLabel->setDefaultTextColor((c % 2 == 1) ? darkColor : lightColor);
+            fileLabel->setPos(c * squareSize + squareSize * 0.85, squareSize * 7.8);
+            fileLabel->setZValue(0.1);
+            scene->addItem(fileLabel);
         }
-    }
-    
-    // Add rank and file labels
-    QFont font;
-    font.setPointSize(squareSize / 5);
-    
-    for (int r = 0; r < 8; ++r) {
-        QGraphicsTextItem* rankLabel = new QGraphicsTextItem(QString::number(flipped ? r + 1 : 8 - r));
-        rankLabel->setFont(font);
-        rankLabel->setDefaultTextColor((r % 2 == 0) ? darkColor : lightColor);
-        rankLabel->setPos(squareSize * 0.05, r * squareSize + squareSize * 0.05);
-        rankLabel->setZValue(0.1);
-        scene->addItem(rankLabel);
-    }
-    
-    for (int c = 0; c < 8; ++c) {
-        QGraphicsTextItem* fileLabel = new QGraphicsTextItem(QString(QChar('a' + (flipped ? 7 - c : c))));
-        fileLabel->setFont(font);
-        fileLabel->setDefaultTextColor((c % 2 == 1) ? darkColor : lightColor);
-        fileLabel->setPos(c * squareSize + squareSize * 0.85, squareSize * 7.8);
-        fileLabel->setZValue(0.1);
-        scene->addItem(fileLabel);
+        
+        if (logger) {
+            logger->info(QString("Created squares with flipped=%1, showing %2 perspective")
+                .arg(flipped ? "true" : "false")
+                .arg(flipped ? "black" : "white"));
+        }
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in createSquares(): %1").arg(e.what()));
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in createSquares()");
+        }
     }
 }
 
 Position ChessBoardWidget::boardToLogical(const Position& pos) const
 {
     if (flipped) {
+        // When flipped, convert board coordinates back to logical coordinates
         return Position(7 - pos.row, 7 - pos.col);
     }
     return pos;
@@ -2692,6 +2885,8 @@ Position ChessBoardWidget::boardToLogical(const Position& pos) const
 Position ChessBoardWidget::logicalToBoard(const Position& pos) const
 {
     if (flipped) {
+        // When flipped, convert logical coordinates to flipped board coordinates
+        // This ensures black player sees black pieces at bottom
         return Position(7 - pos.row, 7 - pos.col);
     }
     return pos;
@@ -2725,12 +2920,15 @@ void ChessBoardWidget::handleDrop(const Position& pos)
     
     // Emit the move request
     emit moveRequested(currentGameId, move);
-    
-    // Reset selection
-    selectedPosition = Position();
+
+    // Note: We don't reset selectedPosition here because we need to wait for server confirmation
+    // If the move is invalid, the piece will be reset in onMoveResult
+////// Reset selection
+//  selectedPosition = Position();
 }
 
-void ChessBoardWidget::animatePieceMovement(ChessPieceItem* piece, const QPointF& startPos, const QPointF& endPos) {
+void ChessBoardWidget::animatePieceMovement(ChessPieceItem* piece, const QPointF& startPos, const QPointF& endPos)
+{
     QPropertyAnimation* animation = new QPropertyAnimation(piece, "pos");
     animation->setDuration(300);
     animation->setStartValue(startPos);
@@ -5032,7 +5230,14 @@ void GameManager::parseMoveHistory(const QJsonArray& moveHistoryArray) {
 // MPChessClient implementation
 MPChessClient::MPChessClient(QWidget* parent)
     : QMainWindow(parent), ui(new Ui::MPChessClient), replayMode(false), currentReplayIndex(-1),
-      connectAction(nullptr), disconnectAction(nullptr), loginDialog(nullptr), playerInfoLabel(nullptr), sidePanel(nullptr), sidePanelLayout(nullptr)
+      connectAction(nullptr), disconnectAction(nullptr), loginDialog(nullptr), 
+      playerInfoLabel(nullptr), sidePanel(nullptr), sidePanelLayout(nullptr),
+      // Initialize all pointers to nullptr
+      boardWidget(nullptr), moveHistoryWidget(nullptr), capturedPiecesWidget(nullptr),
+      gameTimerWidget(nullptr), analysisWidget(nullptr), profileWidget(nullptr),
+      leaderboardWidget(nullptr), matchmakingWidget(nullptr), gameHistoryWidget(nullptr),
+      connectionStatusLabel(nullptr), gameStatusLabel(nullptr), statusMessagesWindow(nullptr),
+      chatDisplay(nullptr), chatInput(nullptr)
 {    
     // Initialize core components
     logger = new Logger(this);
@@ -5103,13 +5308,19 @@ MPChessClient::MPChessClient(QWidget* parent)
         loadSettings();
         
         logger->info("MPChessClient: connects done, updating theme...");
-        // Update theme
-        updateTheme();
-        
-        logger->info("MPChessClient: Login dialog...");
-        // Show login dialog
-        QTimer::singleShot(100, this, &MPChessClient::showLoginDialog);
-        
+        // DEFER theme update until after constructor completes
+        QTimer::singleShot(0, this, [this]() {
+            updateTheme();
+        });
+
+        logger->info("MPChessClient: Final validation...");
+        logger->info(QString("boardWidget valid: %1").arg(boardWidget != nullptr));
+        logger->info(QString("capturedPiecesWidget valid: %1").arg(capturedPiecesWidget != nullptr));
+        logger->info(QString("networkManager valid: %1").arg(networkManager != nullptr));
+        logger->info(QString("gameManager valid: %1").arg(gameManager != nullptr));
+        logger->info(QString("themeManager valid: %1").arg(themeManager != nullptr));
+        logger->info(QString("audioManager valid: %1").arg(audioManager != nullptr));
+
         logger->info("MPChessClient initialized");
     } catch (const std::exception& e) {
         logger->error(QString("Exception during initialization: %1").arg(e.what()));
@@ -5212,59 +5423,86 @@ void MPChessClient::onConnected()
         }
         
         connectionStatusLabel->setText("Connected");
-        connectionStatusLabel->setStyleSheet("color: green;");
+        connectionStatusLabel->setStyleSheet("color: green; font-weight: bold; padding: 2px 8px;");
         
         // Update menu actions
         if (connectAction) connectAction->setEnabled(false);
         if (disconnectAction) disconnectAction->setEnabled(true);
         
-        logger->info("Connected to server - will show login dialog");
+        logger->info("Connected to server successfully");
         
-        // Show login dialog after successful connection with a longer delay
-        // to ensure all UI components are ready
+        // Show both in status bar and status window
+        showMessage("Connected to server successfully", false);
+        
+        // Show login dialog after successful connection with proper error handling
         QTimer::singleShot(500, this, [this]() {
             try {
-                showLoginDialog();
+                // Double-check we're still connected before showing login dialog
+                if (networkManager && networkManager->isConnected()) {
+                    showLoginDialog();
+                } else {
+                    logger->warning("Connection lost before showing login dialog");
+                    showMessage("Connection lost", true);
+                }
             } catch (const std::exception& e) {
                 logger->error(QString("Exception in delayed showLoginDialog: %1").arg(e.what()));
+                showMessage("Error showing login dialog", true);
             } catch (...) {
                 logger->error("Unknown exception in delayed showLoginDialog");
+                showMessage("Unknown error showing login dialog", true);
             }
         });
-        
+
     } catch (const std::exception& e) {
         logger->error(QString("Exception in onConnected(): %1").arg(e.what()));
+        showMessage("Error in connection handler", true);
     } catch (...) {
         logger->error("Unknown exception in onConnected()");
+        showMessage("Unknown error in connection handler", true);
     }
 }
 
 void MPChessClient::onDisconnected()
 {
-    connectionStatusLabel->setText("Not Connected");
-    connectionStatusLabel->setStyleSheet("color: red;");
+    try {
+        connectionStatusLabel->setText("Not Connected");
+        connectionStatusLabel->setStyleSheet("color: red; font-weight: bold; padding: 2px 8px;");
 
-    // Update menu actions
-    connectAction->setEnabled(true);
-    disconnectAction->setEnabled(false);
+        // Update menu actions
+        if (connectAction) connectAction->setEnabled(true);
+        if (disconnectAction) disconnectAction->setEnabled(false);
 
-    // Show message
-    showMessage("Disconnected from server", true);
-    
+        // Show message in both places
+        showMessage("Disconnected from server", true);
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onDisconnected(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onDisconnected()");
+    }
+
     // Don't automatically show login dialog on disconnect
     // The user will need to reconnect manually
 }
 
 void MPChessClient::onConnectionError(const QString& errorMessage)
 {
-    connectionStatusLabel->setText("Connection Error");
-    connectionStatusLabel->setStyleSheet("color: red;");
-    
-    // Show error message
-    showMessage("Connection error: " + errorMessage, true);
-    
-    // Play error sound
-    audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
+    try {
+        connectionStatusLabel->setText("Connection Error");
+        connectionStatusLabel->setStyleSheet("color: red; font-weight: bold; padding: 2px 8px;");
+        
+        // Show error message in both places
+        showMessage("Connection error: " + errorMessage, true);
+        
+        // Play error sound
+        if (audioManager) {
+            audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onConnectionError(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onConnectionError()");
+    }
 }
 
 void MPChessClient::onAuthenticationResult(bool success, const QString& message)
@@ -5294,69 +5532,6 @@ void MPChessClient::onAuthenticationResult(bool success, const QString& message)
         audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
     }
 }
-
-/*
-void MPChessClient::onGameStarted(const QJsonObject& gameData)
-{
-    logger->info("onGameStarted...");
-
-    try {
-        // Play game start sound
-        audioManager->playSoundEffect(AudioManager::SoundEffect::GAME_START);
-        
-        // Switch to game tab
-        mainStack->setCurrentIndex(1);
-        
-        // Reset the board
-        boardWidget->resetBoard();
-        
-        // Get player color from gameData
-        QString yourColor = gameData["yourColor"].toString();
-        logger->info(QString("Player color in gameData object: %1").arg(yourColor));
-        
-        // Set player color correctly
-        PieceColor playerColor = (yourColor == "white") ? PieceColor::WHITE : PieceColor::BLACK;
-        logger->info(QString("Setting player color to %1").arg(yourColor));
-        
-        // Set player color in game manager
-        gameManager->startNewGame(gameData);
-        
-        // Set player color in board widget
-        boardWidget->setPlayerColor(playerColor);
-        
-        // Log the board state
-        logger->info(QString("Player color set to %1, board flipped: %2")
-            .arg(playerColor == PieceColor::WHITE ? "white" : "black")
-            .arg(boardWidget->isFlipped() ? "true" : "false"));
-
-        logger->info(QString("Board flipped state: %1").arg(boardWidget->isFlipped() ? "flipped" : "not flipped"));
-
-        // Set game ID
-        boardWidget->setCurrentGameId(gameManager->getCurrentGameId());
-
-        // Update game status
-        gameStatusLabel->setText("Game in progress");
-        
-        // Update game status
-        QString whitePlayer = gameData["whitePlayer"].toString();
-        QString blackPlayer = gameData["blackPlayer"].toString();
-        
-        // Create player info display
-        createPlayerInfoDisplay(whitePlayer, blackPlayer, yourColor);
-        
-        // Show message
-        QString opponent = (playerColor == PieceColor::WHITE) ? blackPlayer : whitePlayer;
-        showMessage("Game started against " + opponent);
-        
-        // Enable board interaction
-        boardWidget->setInteractive(true);
-    } catch (const std::exception& e) {
-        logger->error(QString("Exception in onGameStarted: %1").arg(e.what()));
-    } catch (...) {
-        logger->error("Unknown exception in onGameStarted");
-    }
-}
-*/
 
 void MPChessClient::onGameStarted(const QJsonObject& gameData)
 {
@@ -5389,11 +5564,9 @@ void MPChessClient::onGameStarted(const QJsonObject& gameData)
         // Now set player color which may flip the board
         boardWidget->setPlayerColor(playerColor);
         
-        // Log the board state
-        logger->info(QString("Player color set to %1, board flipped: %2")
-            .arg(playerColor == PieceColor::WHITE ? "white" : "black")
-            .arg(boardWidget->isFlipped() ? "true" : "false"));
-
+        // Setup initial position
+        boardWidget->setupInitialPosition();
+        
         // Update game status
         gameStatusLabel->setText("Game in progress");
         
@@ -5410,6 +5583,14 @@ void MPChessClient::onGameStarted(const QJsonObject& gameData)
         
         // Enable board interaction
         boardWidget->setInteractive(true);
+        
+        // Update the board from current game state if available
+        if (gameData.contains("gameState")) {
+            updateBoardFromGameState(gameData["gameState"].toObject());
+        } else if (gameManager->getCurrentGameState().contains("board")) {
+            // Use the game state from the game manager
+            updateBoardFromGameState(gameManager->getCurrentGameState());
+        }
         
         // Log board state for debugging
         boardWidget->logBoardState();
@@ -5660,31 +5841,43 @@ void MPChessClient::onMoveRecommendationsReceived(const QJsonArray& recommendati
 
 void MPChessClient::onMoveRequested(const QString& gameId, const ChessMove& move)
 {
-    // Check if we're in replay mode
-    if (replayMode) {
-        return;
-    }
-    
-    // Check if it's our turn
-    PieceColor currentTurn = gameManager->getCurrentGameState()["currentTurn"].toString() == "white" ? 
-        PieceColor::WHITE : PieceColor::BLACK;
-    
-    if (currentTurn != gameManager->getPlayerColor()) {
-        showMessage("It's not your turn", true);
-        
-        // Reset the piece to its original position
-        Position from = move.getFrom();
-        ChessPieceItem* piece = boardWidget->getPieceAt(from);
-        if (piece) {
-            Position boardPos = boardWidget->logicalToBoard(from);
-            piece->setPos(boardPos.col * boardWidget->getSquareSize(), 
-                         boardPos.row * boardWidget->getSquareSize());
+    try {
+        // Check if we're in replay mode
+        if (replayMode) {
+            logger->info("Move request ignored - in replay mode");
+            return;
         }
-        return;
+        
+        // Check if it's our turn
+        PieceColor currentTurn = gameManager->getCurrentGameState()["currentTurn"].toString() == "white" ? 
+            PieceColor::WHITE : PieceColor::BLACK;
+        
+        if (currentTurn != gameManager->getPlayerColor()) {
+            logger->error("It's not your turn");
+            showMessage("It's not your turn", true);
+            
+            // Reset the piece to its original position
+            Position from = move.getFrom();
+            ChessPieceItem* piece = boardWidget->getPieceAt(from);
+            if (piece) {
+                Position boardPos = boardWidget->logicalToBoard(from);
+                piece->setPos(boardPos.col * boardWidget->getSquareSize(), 
+                             boardPos.row * boardWidget->getSquareSize());
+            }
+            
+            // Play error sound
+            audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
+            return;
+        }
+        
+        // Send move to server via game manager
+        logger->info(QString("Sending move %1 to server").arg(move.toAlgebraic()));
+        gameManager->makeMove(move);
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onMoveRequested: %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in onMoveRequested");
     }
-    
-    // Send move to server via game manager
-    gameManager->makeMove(move);
 }
 
 void MPChessClient::onSquareClicked(const Position& pos)
@@ -5693,17 +5886,31 @@ void MPChessClient::onSquareClicked(const Position& pos)
     // This is used for selecting pieces and making moves
 }
 
-void MPChessClient::onCheckTurn(PieceColor color)
+void MPChessClient::onCheckTurn(PieceColor color, bool* isPlayerTurn)
 {
-    // Check if it's this player's turn
-    PieceColor currentTurn = gameManager->getCurrentGameState()["currentTurn"].toString() == "white" ? 
-        PieceColor::WHITE : PieceColor::BLACK;
-    
-    if (currentTurn != color) {
-        showMessage("It's not your turn", true);
+    try {
+        // Check if it's this player's turn
+        PieceColor currentTurn = gameManager->getCurrentGameState()["currentTurn"].toString() == "white" ? 
+            PieceColor::WHITE : PieceColor::BLACK;
         
-        // Clear selection in board widget
-        boardWidget->clearSelection();
+        // Set the result
+        if (isPlayerTurn) {
+            *isPlayerTurn = (currentTurn == color);
+        }
+        
+        if (currentTurn != color) {
+            logger->error("It's not your turn");
+            showMessage("It's not your turn", true);
+            
+            // Play error sound
+            audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in onCheckTurn: %1").arg(e.what()));
+        if (isPlayerTurn) *isPlayerTurn = false;
+    } catch (...) {
+        logger->error("Unknown exception in onCheckTurn");
+        if (isPlayerTurn) *isPlayerTurn = false;
     }
 }
 
@@ -5976,38 +6183,101 @@ void MPChessClient::setupUI()
             return;
         }
         
+        // Create horizontal layout for main content
+        QHBoxLayout* contentLayout = new QHBoxLayout();
+        
+        logger->info("In MPChessClient::setupUI() -- Creating vertical navigation panel");
+        // Create left navigation panel with vertically stacked buttons
+        QWidget* navigationPanel = new QWidget(centralWidget);
+        navigationPanel->setFixedWidth(120);
+        navigationPanel->setStyleSheet(
+            "QWidget {"
+            "    background-color: #f8f9fa;"
+            "    border-right: 1px solid #dee2e6;"
+            "}"
+        );
+        
+        QVBoxLayout* navLayout = new QVBoxLayout(navigationPanel);
+        navLayout->setSpacing(2);
+        navLayout->setContentsMargins(5, 10, 5, 10);
+        
         logger->info("In MPChessClient::setupUI() -- Creating mainStack");
-        // Create main stack
+        // Create main stack first
         mainStack = new QStackedWidget(centralWidget);
         if (!mainStack) {
             logger->error("In MPChessClient::setupUI() -- Failed to create mainStack");
             return;
         }
+
+        // Create navigation buttons (stacked vertically with horizontal text)
+        QStringList tabNames = {"Home", "Play", "Analysis", "Profile", "Leaderboard"};
         
-        logger->info("In MPChessClient::setupUI() -- Creating tabBar");
-        // Create tabs for navigation
-        QTabBar* tabBar = new QTabBar(centralWidget);
-        if (!tabBar) {
-            logger->error("In MPChessClient::setupUI() -- Failed to create tabBar");
-            return;
+        // Create buttons and store them as member variables or use proper capture
+        for (int i = 0; i < tabNames.size(); ++i) {
+            QPushButton* button = new QPushButton(tabNames[i], navigationPanel);
+            button->setMinimumHeight(35);
+            button->setCheckable(true);
+            button->setStyleSheet(
+                "QPushButton {"
+                "    text-align: left;"
+                "    padding: 8px 12px;"
+                "    border: none;"
+                "    border-radius: 4px;"
+                "    background-color: transparent;"
+                "    font-weight: normal;"
+                "}"
+                "QPushButton:checked {"
+                "    background-color: #007bff;"
+                "    color: white;"
+                "    font-weight: bold;"
+                "}"
+                "QPushButton:hover:!checked {"
+                "    background-color: #e9ecef;"
+                "}"
+            );
+            
+            // Store button index as property for safe access
+            button->setProperty("tabIndex", i);
+            
+            // Connect button to tab switching - capture by value, not reference
+            connect(button, &QPushButton::clicked, this, [this, button]() {
+                int tabIndex = button->property("tabIndex").toInt();
+                
+                // Find all navigation buttons and uncheck them
+                QWidget* navPanel = button->parentWidget();
+                if (navPanel) {
+                    QList<QPushButton*> allButtons = navPanel->findChildren<QPushButton*>();
+                    for (QPushButton* btn : allButtons) {
+                        btn->setChecked(false);
+                    }
+                }
+                
+                // Check clicked button
+                button->setChecked(true);
+                
+                // Switch to corresponding page
+                if (mainStack && tabIndex >= 0 && tabIndex < mainStack->count()) {
+                    mainStack->setCurrentIndex(tabIndex);
+                    switch (tabIndex) {
+                        case 0: onHomeTabSelected(); break;
+                        case 1: onPlayTabSelected(); break;
+                        case 2: onAnalysisTabSelected(); break;
+                        case 3: onProfileTabSelected(); break;
+                        case 4: onLeaderboardTabSelected(); break;
+                    }
+                }
+            });
+            
+            navLayout->addWidget(button);
+            
+            // Set first button as checked initially
+            if (i == 0) {
+                button->setChecked(true);
+            }
         }
         
-        tabBar->addTab("Home");
-        tabBar->addTab("Play");
-        tabBar->addTab("Analysis");
-        tabBar->addTab("Profile");
-        tabBar->addTab("Leaderboard");
-
-        // Connect tab signals
-        connect(tabBar, &QTabBar::currentChanged, this, [this](int index) {
-            switch (index) {
-                case 0: onHomeTabSelected(); break;
-                case 1: onPlayTabSelected(); break;
-                case 2: onAnalysisTabSelected(); break;
-                case 3: onProfileTabSelected(); break;
-                case 4: onLeaderboardTabSelected(); break;
-            }
-        });
+        // Add stretch to push buttons to top
+        navLayout->addStretch();
 
         logger->info("In MPChessClient::setupUI() -- Creating home page");
         // Create home page
@@ -6087,9 +6357,34 @@ void MPChessClient::setupUI()
         mainStack->addWidget(profilePage);
         mainStack->addWidget(leaderboardPage);
         
-        // Add widgets to main layout
-        mainLayout->addWidget(tabBar);
-        mainLayout->addWidget(mainStack);
+        // Add navigation panel and main stack to content layout
+        contentLayout->addWidget(navigationPanel);
+        contentLayout->addWidget(mainStack, 1); // Give main stack more space
+        
+        // Add content layout to main layout
+        mainLayout->addLayout(contentLayout, 1);
+
+        logger->info("In MPChessClient::setupUI() -- Creating status messages window");
+        // Create status messages window (3 rows high)
+        statusMessagesWindow = new QTextEdit(centralWidget);
+        statusMessagesWindow->setReadOnly(true);
+        statusMessagesWindow->setMaximumHeight(80); // Approximately 3 rows
+        statusMessagesWindow->setMinimumHeight(80);
+        statusMessagesWindow->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        statusMessagesWindow->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        statusMessagesWindow->setStyleSheet(
+            "QTextEdit {"
+            "    background-color: #f8f9fa;"
+            "    border: 1px solid #dee2e6;"
+            "    border-radius: 4px;"
+            "    padding: 4px;"
+            "    font-family: 'Consolas', 'Monaco', monospace;"
+            "    font-size: 11px;"
+            "}"
+        );
+        
+        // Add status messages window to main layout
+        mainLayout->addWidget(statusMessagesWindow);
 
         logger->info("In MPChessClient::setupUI() -- Creating game UI");
         // Create game UI - this must be called after adding pages to stack
@@ -6111,7 +6406,7 @@ void MPChessClient::setupUI()
         connect(leaderboardWidget, &LeaderboardWidget::requestAllPlayers, this, &MPChessClient::onRequestLeaderboard);
         
         // Set initial size
-        resize(1024, 768);
+        resize(1200, 800); // Slightly wider to accommodate navigation panel
         logger->info("Finished MPChessClient::setupUI()");
     } catch (const std::exception& e) {
         logger->error(QString("Exception in setupUI(): %1").arg(e.what()));
@@ -6187,15 +6482,81 @@ void MPChessClient::createMenus()
 }
 
 void MPChessClient::createStatusBar() {
-    // Create status labels
-    connectionStatusLabel = new QLabel("Disconnected");
-    connectionStatusLabel->setStyleSheet("color: red;");
-    
-    gameStatusLabel = new QLabel("No active game");
-    
-    // Add labels to status bar
-    statusBar()->addWidget(connectionStatusLabel);
-    statusBar()->addWidget(gameStatusLabel, 1);
+    try {
+        // Create status labels - only for major status updates
+        connectionStatusLabel = new QLabel("Disconnected");
+        connectionStatusLabel->setStyleSheet("color: red; font-weight: bold; padding: 2px 8px;");
+        
+        gameStatusLabel = new QLabel("No active game");
+        gameStatusLabel->setStyleSheet("padding: 2px 8px;");
+        
+        // Add labels to status bar with separators
+        statusBar()->addWidget(connectionStatusLabel);
+        statusBar()->addWidget(new QLabel("|")); // Visual separator
+        statusBar()->addWidget(gameStatusLabel, 1);
+        
+        // Add initial message to status window
+        if (statusMessagesWindow) {
+            appendStatusMessage("Chess Client initialized", false);
+        }
+        
+        logger->info("Status bar created successfully");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in createStatusBar(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in createStatusBar()");
+    }
+}
+
+void MPChessClient::appendStatusMessage(const QString& message, bool isError)
+{
+    try {
+        if (!statusMessagesWindow) {
+            // If status window doesn't exist yet, just log and return
+            if (logger) {
+                if (isError) {
+                    logger->error(message);
+                } else {
+                    logger->info(message);
+                }
+            }
+            return;
+        }
+        
+        // Get current timestamp
+        QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+        
+        // Format message with timestamp and type
+        QString formattedMessage;
+        if (isError) {
+            formattedMessage = QString("<span style='color: red;'>[%1] ERROR: %2</span>")
+                .arg(timestamp)
+                .arg(message);
+        } else {
+            formattedMessage = QString("<span style='color: #333;'>[%1] %2</span>")
+                .arg(timestamp)
+                .arg(message);
+        }
+        
+        // Append message to status window
+        statusMessagesWindow->append(formattedMessage);
+        
+        // Auto-scroll to bottom
+        QTextCursor cursor = statusMessagesWindow->textCursor();
+        cursor.movePosition(QTextCursor::End);
+        statusMessagesWindow->setTextCursor(cursor);
+        
+        // Log the message
+        if (isError) {
+            logger->error(message);
+        } else {
+            logger->info(message);
+        }
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in appendStatusMessage(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in appendStatusMessage()");
+    }
 }
 
 void MPChessClient::createGameUI()
@@ -6349,7 +6710,7 @@ void MPChessClient::updateBoardFromGameState(const QJsonObject& gameState)
             return;
         }
         
-        // Clear the board but don't reset player color or flip state
+        // Clear the board but preserve player color and flip state
         for (int r = 0; r < 8; ++r) {
             for (int c = 0; c < 8; ++c) {
                 boardWidget->removePiece(Position(r, c));
@@ -6367,8 +6728,7 @@ void MPChessClient::updateBoardFromGameState(const QJsonObject& gameState)
             for (int c = 0; c < 8; ++c) {
                 QJsonObject pieceObj = rowArray[c].toObject();
                 if (pieceObj.isEmpty()) {
-                    logger->warning(QString("Empty piece object at position (%1,%2)").arg(r).arg(c));
-                    continue;
+                    continue; // Empty square, no warning needed
                 }
                 
                 QString type = pieceObj["type"].toString();
@@ -6422,12 +6782,13 @@ void MPChessClient::updateBoardFromGameState(const QJsonObject& gameState)
             PieceColor currentTurn = gameState["currentTurn"].toString() == "white" ? 
                 PieceColor::WHITE : PieceColor::BLACK;
             
-            // In a real implementation, we would need to find the king's position
-            // For now, we'll just highlight the king if we find it
+            // Find the king's position
             for (int r = 0; r < 8; ++r) {
                 QJsonArray rowArray = boardArray[r].toArray();
                 for (int c = 0; c < 8; ++c) {
                     QJsonObject pieceObj = rowArray[c].toObject();
+                    if (pieceObj.isEmpty()) continue;
+                    
                     QString type = pieceObj["type"].toString();
                     QString color = pieceObj["color"].toString();
                     
@@ -6557,22 +6918,25 @@ void MPChessClient::showLoginDialog()
     try {
         logger->info("Starting showLoginDialog()");
 
-        // Check if connected to server
+        // Check if networkManager exists
         if (!networkManager) {
             logger->error("NetworkManager is null in showLoginDialog");
+            showMessage("Internal error: NetworkManager not initialized", true);
             return;
         }
         
+        // Check if connected to server
         if (!networkManager->isConnected()) {
             logger->warning("Attempted to show login dialog when not connected to server");
             showMessage("Not connected to server. Please connect first.", true);
             return;
         }
         
-        // Create login dialog if it doesn't exist or recreate it to ensure a clean state
+        // Clean up any existing login dialog
         if (loginDialog) {
-            logger->info("Deleting existing LoginDialog");
-            delete loginDialog;
+            logger->info("Cleaning up existing LoginDialog");
+            loginDialog->disconnect(); // Disconnect all signals
+            loginDialog->deleteLater();
             loginDialog = nullptr;
         }
         
@@ -6580,50 +6944,78 @@ void MPChessClient::showLoginDialog()
         loginDialog = new LoginDialog(this);
         if (!loginDialog) {
             logger->error("Failed to create LoginDialog");
+            showMessage("Failed to create login dialog", true);
             return;
         }
 
-        // Connect signals
+        // Connect signals with error handling
         connect(loginDialog, &LoginDialog::loginRequested, 
-                [this](const QString& username, const QString& password, bool isRegistering) {
-                    if (networkManager) {
-                        networkManager->authenticate(username, password, isRegistering);
-                    } else {
-                        logger->error("NetworkManager is null in login request");
+                this, [this](const QString& username, const QString& password, bool isRegistering) {
+                    try {
+                        if (networkManager && networkManager->isConnected()) {
+                            logger->info(QString("Processing %1 request for user: %2")
+                                        .arg(isRegistering ? "registration" : "login")
+                                        .arg(username));
+                            networkManager->authenticate(username, password, isRegistering);
+                        } else {
+                            logger->error("Cannot authenticate: not connected to server");
+                            showMessage("Not connected to server", true);
+                        }
+                    } catch (const std::exception& e) {
+                        logger->error(QString("Exception in login request handler: %1").arg(e.what()));
+                        showMessage("Error processing login request", true);
+                    } catch (...) {
+                        logger->error("Unknown exception in login request handler");
+                        showMessage("Unknown error processing login request", true);
                     }
                 });
         
-        logger->info("LoginDialog created successfully");
+        // Connect dialog finished signal for cleanup
+        connect(loginDialog, &QDialog::finished, this, [this](int result) {
+            Q_UNUSED(result);
+            logger->info("Login dialog finished");
+        });
+        
+        logger->info("LoginDialog created successfully, showing dialog");
         
         // Show the dialog modally
-        logger->info("Showing login dialog");
         int result = loginDialog->exec();
         
         logger->info(QString("Login dialog closed with result: %1").arg(result));
         
     } catch (const std::exception& e) {
         logger->error(QString("Exception in showLoginDialog(): %1").arg(e.what()));
+        showMessage("Error showing login dialog: " + QString(e.what()), true);
     } catch (...) {
         logger->error("Unknown exception in showLoginDialog()");
+        showMessage("Unknown error showing login dialog", true);
     }
 }
 
 void MPChessClient::showMessage(const QString& message, bool error)
 {
     try {
-        // Show message in status bar
-        statusBar()->showMessage(message, 5000);
-
-        // Log the message
-        if (error) {
-            logger->error(message);
-        } else {
-            logger->info(message);
+        // Add message to scrolling status window (with null check)
+        appendStatusMessage(message, error);
+        
+        // Only show major updates in status bar temporarily
+        if (error || message.contains("Connected") || message.contains("Disconnected") || 
+            message.contains("Authentication") || message.contains("Game")) {
+            
+            // Check if statusBar exists before using it
+            if (statusBar()) {
+                statusBar()->showMessage(message, 3000); // Show for 3 seconds
+            }
         }
+        
     } catch (const std::exception& e) {
-        logger->error(QString("Exception in showMessage(): %1").arg(e.what()));
+        if (logger) {
+            logger->error(QString("Exception in showMessage(): %1").arg(e.what()));
+        }
     } catch (...) {
-        logger->error("Unknown exception in showMessage()");
+        if (logger) {
+            logger->error("Unknown exception in showMessage()");
+        }
     }
 }
 
@@ -6717,29 +7109,37 @@ void MPChessClient::loadSettings()
 
 void MPChessClient::updateTheme()
 {
-    logger->info("In MPChessClient::updateTheme() -- Start... setStyleSheet()...");
-    // Apply theme to the application
-    setStyleSheet(themeManager->getStyleSheet());
+    try {
+        logger->info("In MPChessClient::updateTheme() -- Start... setStyleSheet()...");
+        // Apply theme to the application
+        setStyleSheet(themeManager->getStyleSheet());
 
-    logger->info("In MPChessClient::updateTheme() -- boardWidget->updateTheme()...");
-    if(boardWidget == nullptr || !boardWidget)
-    {
-        logger->error("In MPChessClient::updateTheme() -- boardWidget is nullptr");
+        logger->info("In MPChessClient::updateTheme() -- boardWidget->updateTheme()...");
+        if(boardWidget == nullptr || !boardWidget)
+        {
+            logger->error("In MPChessClient::updateTheme() -- boardWidget is nullptr");
+            return; // Don't continue if boardWidget is null
+        }
+
+        // Update board theme
+        boardWidget->updateTheme();
+        
+        logger->info("In MPChessClient::updateTheme() -- capturedPiecesWidget->updateTheme()...");
+
+        if(capturedPiecesWidget == nullptr || !capturedPiecesWidget)
+        {
+            logger->error("In MPChessClient::updateTheme() -- capturedPiecesWidget is nullptr");
+            return; // Don't continue if capturedPiecesWidget is null
+        }
+        // Update captured pieces widget
+        capturedPiecesWidget->updateTheme();
+
+        logger->info("In MPChessClient::updateTheme() -- Finished");
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in updateTheme(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in updateTheme()");
     }
-
-    // Update board theme
-    boardWidget->updateTheme();
-    
-    logger->info("In MPChessClient::updateTheme() -- capturedPiecesWidget->updateTheme()...");
-
-    if(capturedPiecesWidget == nullptr || !capturedPiecesWidget)
-    {
-        logger->error("In MPChessClient::updateTheme() -- capturedPiecesWidget is nullptr");
-    }
-    // Update captured pieces widget
-    capturedPiecesWidget->updateTheme();
-
-    logger->info("In MPChessClient::updateTheme() -- Finished");
 }
 
 // Main function
