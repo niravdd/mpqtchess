@@ -95,16 +95,74 @@ curl -L -o "./client/resources/pieces/modern/black_king.png" "https://upload.wik
 
 echo "Downloading sounds..."
 # Sound files
-curl -L -o "./client/resources/sounds/move.wav" "https://freesound.org/data/previews/240/240777_4107740-lq.mp3"
-curl -L -o "./client/resources/sounds/capture.wav" "https://freesound.org/data/previews/240/240776_4107740-lq.mp3"
-curl -L -o "./client/resources/sounds/check.wav" "https://freesound.org/data/previews/131/131660_2398403-lq.mp3"
-curl -L -o "./client/resources/sounds/checkmate.wav" "https://freesound.org/data/previews/131/131662_2398403-lq.mp3"
-curl -L -o "./client/resources/sounds/castle.wav" "https://freesound.org/data/previews/242/242857_4107740-lq.mp3"
-curl -L -o "./client/resources/sounds/promotion.wav" "https://freesound.org/data/previews/270/270402_5123851-lq.mp3"
-curl -L -o "./client/resources/sounds/game_start.wav" "https://freesound.org/data/previews/221/221683_1015240-lq.mp3"
-curl -L -o "./client/resources/sounds/game_end.wav" "https://freesound.org/data/previews/277/277021_5267727-lq.mp3"
+# First, make sure you have FFmpeg installed
+# On macOS: brew install ffmpeg
+# On Ubuntu: sudo apt-get install ffmpeg
+
+# Create the sounds directory if it doesn't exist
+mkdir -p ./client/resources/sounds
+
+# Download and convert move sound
+curl -L "https://freesound.org/data/previews/240/240777_4107740-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/move.wav" && \
+rm temp.mp3
+
+# Download and convert capture sound
+curl -L "https://freesound.org/data/previews/240/240776_4107740-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/capture.wav" && \
+rm temp.mp3
+
+# Download and convert check sound
+curl -L "https://freesound.org/data/previews/131/131660_2398403-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/check.wav" && \
+rm temp.mp3
+
+# Download and convert checkmate sound
+curl -L "https://freesound.org/data/previews/131/131662_2398403-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/checkmate.wav" && \
+rm temp.mp3
+
+# Download and convert castle sound
+curl -L "https://freesound.org/data/previews/242/242857_4107740-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/castle.wav" && \
+rm temp.mp3
+
+# Download and convert promotion sound
+curl -L "https://freesound.org/data/previews/270/270402_5123851-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/promotion.wav" && \
+rm temp.mp3
+
+# Download and convert game_start sound
+curl -L "https://freesound.org/data/previews/221/221683_1015240-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/game_start.wav" && \
+rm temp.mp3
+
+# Game end sound - conclusive fanfare
+curl -L "https://freesound.org/data/previews/362/362205_6629901-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/game_end.wav" && \
+rm temp.mp3
+
+# Download and convert error sound
+curl -L "https://freesound.org/data/previews/142/142608_1840739-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/error.wav" && \
+rm temp.mp3
+
+# Better error sound
 curl -L -o "./client/resources/sounds/error.wav" "https://freesound.org/data/previews/142/142608_1840739-lq.mp3"
-curl -L -o "./client/resources/sounds/notification.wav" "https://freesound.org/data/previews/336/336998_4939433-lq.mp3"
-curl -L -o "./client/resources/sounds/background_music.mp3" "https://freesound.org/data/previews/368/368388_6394861-lq.mp3"
+
+# Download and convert notification sound
+curl -L "https://freesound.org/data/previews/336/336998_4939433-lq.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/notification.wav" && \
+rm temp.mp3
+
+# Kevin MacLeod piano piece (very reliable source), but is large in size (~264 MB)
+curl -L "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Relaxing%20Piano%20Music.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/background_music.wav" && \
+rm temp.mp3
+
+# Chopin's Nocturne Op. 9 No. 2 (~40 MB), better one
+curl -L "https://www.mfiles.co.uk/mp3-downloads/chopin-nocturne-op9-no2.mp3" -o temp.mp3 && \
+ffmpeg -i temp.mp3 -acodec pcm_s16le -ar 44100 "./client/resources/sounds/background_music.wav" && \
+rm temp.mp3
 
 echo "All resources have been downloaded!"
