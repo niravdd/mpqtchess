@@ -1544,7 +1544,16 @@ bool ChessBoard::isInCheckmate(PieceColor color) const
     }
 
     try {
-        // First check if the king is in check
+        // First verify king exists - if not, board is in invalid state
+        Position kingPos = getKingPosition(color);
+        if (!kingPos.isValid()) {
+            if (server && server->getLogger()) {
+                server->getLogger()->warning("ChessBoard::isInCheckmate() - King position invalid, cannot check checkmate");
+            }
+            return false;
+        }
+        
+        // Check if the king is in check
         if (!isInCheck(color)) {
             if (server && server->getLogger()) {
                 server->getLogger()->debug("ChessBoard::isInCheckmate() - King is not in check, so not checkmate");
@@ -1612,6 +1621,15 @@ bool ChessBoard::isInStalemate(PieceColor color) const
     if (server && server->getLogger())
     {
         server->getLogger()->debug("ChessBoard::isInStalemate() - Checking if game is in stalemate");
+    }
+
+    // First verify king exists - if not, board is in invalid state
+    Position kingPos = getKingPosition(color);
+    if (!kingPos.isValid()) {
+        if (server && server->getLogger()) {
+            server->getLogger()->warning("ChessBoard::isInStalemate() - King position invalid, cannot check stalemate");
+        }
+        return false;
     }
 
     if (isInCheck(color))
@@ -5635,28 +5653,57 @@ MPChessServer::MPChessServer(QObject* parent, const std::string& stockfishPath) 
 
 MPChessServer::~MPChessServer()
 {
-    logger->log("MPChessServer shutting down");
+    logger->log("MPChessServer destructor - starting shutdown");
+    logger->flush();
     
+    logger->log("MPChessServer destructor - calling stop()");
+    logger->flush();
     stop();
 
+    logger->log("MPChessServer destructor - waiting for thread pool");
+    logger->flush();
     // Wait for thread pool to finish
-    threadPool->waitForDone();
+    if (threadPool) {
+        threadPool->waitForDone();
+    }
 
-    delete matchmakingTimer;
-    delete gameTimer;
-    delete statusTimer;
-    delete leaderboardTimer;
-    delete performanceTimer;
+    logger->log("MPChessServer destructor - stopping and deleting timers");
+    logger->flush();
+    if (matchmakingTimer) {
+        matchmakingTimer->stop();
+        delete matchmakingTimer;
+    }
+    if (gameTimer) {
+        gameTimer->stop();
+        delete gameTimer;
+    }
+    if (statusTimer) {
+        statusTimer->stop();
+        delete statusTimer;
+    }
+    if (leaderboardTimer) {
+        leaderboardTimer->stop();
+        delete leaderboardTimer;
+    }
+    if (performanceTimer) {
+        performanceTimer->stop();
+        delete performanceTimer;
+    }
     
+    logger->log("MPChessServer destructor - logging final performance stats");
+    logger->flush();
     // Log final performance stats
     logPerformanceStats();
     
+    logger->log("MPChessServer destructor - clearing singleton instance");
+    logger->flush();
     // Clear the singleton instance if this is the current instance
     if (mpChessServerInstance == this) {
         mpChessServerInstance = nullptr;
     }
     
-    logger->log("MPChessServer destroyed");
+    logger->log("MPChessServer destructor - completed successfully");
+    logger->flush();
 }
 
 void MPChessServer::logPerformanceStats()
@@ -6015,20 +6062,37 @@ void MPChessServer::handleClientData()
     // Read all available data
     QByteArray data = socket->readAll();
     
-    // Parse JSON
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (doc.isNull() || !doc.isObject()) {
-        logger->error("Invalid JSON received from client: " + data.toStdString());
-        return;
+    // Handle multiple JSON messages that might be concatenated
+    int offset = 0;
+    while (offset < data.size()) {
+        // Try to parse JSON starting from current offset
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data.mid(offset), &parseError);
+        
+        if (doc.isNull() || !doc.isObject()) {
+            // If parsing failed, log the error and skip this data
+            logger->error("Invalid JSON received from client at offset " + std::to_string(offset) + 
+                         ": " + data.mid(offset, 100).toStdString() + 
+                         " (error: " + parseError.errorString().toStdString() + ")");
+            break;
+        }
+        
+        QJsonObject message = doc.object();
+        
+        // Log the message
+        logger->logNetworkMessage("RECEIVED", message);
+        
+        // Process the message
+        processClientMessage(socket, message);
+        
+        // Move offset forward by the number of bytes consumed
+        offset += parseError.offset;
+        
+        // If no more data was consumed, break to avoid infinite loop
+        if (parseError.offset <= 0) {
+            break;
+        }
     }
-    
-    QJsonObject message = doc.object();
-    
-    // Log the message
-    logger->logNetworkMessage("RECEIVED", message);
-    
-    // Process the message
-    processClientMessage(socket, message);
 }
 
 void MPChessServer::handleMatchmakingTimer()
