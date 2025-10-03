@@ -18,6 +18,9 @@
 Logger::Logger(QObject* parent) : QObject(parent), logLevel(LogLevel::INFO), logToFile(false)
 {
     sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    
+    // Initialize playerPrefix with PID until we know the player color
+    playerPrefix = QString::number(QCoreApplication::applicationPid());
 
     // Default log level is INFO
 }
@@ -99,15 +102,15 @@ void Logger::setLogToFile(bool enabled, const QString& filePath)
         if (enabled) {
             // Set log file path with unique identifier
             if (filePath.isEmpty()) {
-                // Use current directory
-                QString defaultPath = QDir::currentPath();
+                // Use data/logs directory (relative path, same as server)
+                QString logDir = "data/logs";
                 
                 // Create unique filename with process ID and timestamp
                 qint64 pid = QCoreApplication::applicationPid();
                 QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
                 
                 logFilePath = QString("%1/mpchess_client_%2_%3.log")
-                    .arg(defaultPath)
+                    .arg(logDir)
                     .arg(pid)
                     .arg(timestamp);
                 
@@ -194,6 +197,12 @@ void Logger::checkLogFileSize() {
     }
 }
 
+void Logger::setPlayerColorPrefix(const QString& colorPrefix)
+{
+    QMutexLocker<QMutex> locker(&mutex);
+    playerPrefix = colorPrefix;
+}
+
 void Logger::log(LogLevel level, const QString& message) {
     if (level < logLevel) {
         return;
@@ -203,7 +212,7 @@ void Logger::log(LogLevel level, const QString& message) {
         QString formattedMessage = QString("%1 [%2] [%3] %4")
             .arg(getCurrentTimestamp())
             .arg(levelToString(level))
-            .arg(sessionId.left(8))                                                             // Using only first 8 chars of session ID
+            .arg(playerPrefix)
             .arg(message);
         
         QMutexLocker<QMutex> locker(&mutex);
@@ -652,6 +661,7 @@ void NetworkManager::processBuffer()
                 // Try to find a valid JSON object in the buffer
                 int braceCount = 0;
                 int startPos = buffer.indexOf('{');
+                bool foundValidJson = false;
                 
                 if (startPos >= 0) {
                     for (int i = startPos; i < buffer.size(); i++) {
@@ -661,9 +671,10 @@ void NetworkManager::processBuffer()
                         if (braceCount == 0 && i > startPos) {
                             // Found a potential complete JSON object
                             QByteArray jsonData = buffer.mid(startPos, i - startPos + 1);
-                            QJsonDocument testDoc = QJsonDocument::fromJson(jsonData, &parseError);
+                            QJsonParseError testError;
+                            QJsonDocument testDoc = QJsonDocument::fromJson(jsonData, &testError);
                             
-                            if (parseError.error == QJsonParseError::NoError && testDoc.isObject()) {
+                            if (testError.error == QJsonParseError::NoError && testDoc.isObject()) {
                                 logger->debug("Found valid JSON object in buffer");
                                 
                                 // Process the message in a queued connection
@@ -673,6 +684,7 @@ void NetworkManager::processBuffer()
                                 }, Qt::QueuedConnection);
                                 
                                 buffer.remove(0, i + 1);
+                                foundValidJson = true;
                                 break;
                             }
                         }
@@ -680,8 +692,8 @@ void NetworkManager::processBuffer()
                 }
                 
                 // If we couldn't find a valid JSON object, discard the buffer
-                if (!buffer.isEmpty()) {
-                    logger->warning(QString("JSON parse error: %1, discarding buffer").arg(parseError.errorString()));
+                if (!foundValidJson && !buffer.isEmpty()) {
+                    logger->warning(QString("Could not extract valid JSON from buffer, discarding %1 bytes").arg(buffer.size()));
                     buffer.clear();
                 }
             } else {
@@ -1554,7 +1566,8 @@ QString ThemeManager::getPieceThemePathForTheme(PieceTheme theme) const {
 ChessPieceItem::ChessPieceItem(PieceType type, PieceColor color, ThemeManager* themeManager, int squareSize)
     : type(type), color(color), themeManager(themeManager), squareSize(squareSize) {
     
-    setFlag(QGraphicsItem::ItemIsMovable);
+    // Don't set ItemIsMovable - we handle movement through the board widget
+    // This prevents pieces from being dragged freely and corrupting the board
     setFlag(QGraphicsItem::ItemSendsGeometryChanges);
     setFlag(QGraphicsItem::ItemIsSelectable);
     
@@ -1650,7 +1663,8 @@ void ChessPieceItem::loadSvg()
 // ChessBoardWidget implementation
 ChessBoardWidget::ChessBoardWidget(ThemeManager* themeManager, AudioManager* audioManager, QWidget* parent, Logger* logger)
     : QGraphicsView(parent), themeManager(themeManager), audioManager(audioManager),
-      squareSize(60), flipped(false), playerColor(PieceColor::WHITE), interactive(true)
+      squareSize(60), flipped(false), playerColor(PieceColor::WHITE), interactive(true),
+      draggedPiece(nullptr), isDragging(false)
 {
     try {
         this->logger = logger;
@@ -1702,8 +1716,61 @@ ChessBoardWidget::ChessBoardWidget(ThemeManager* themeManager, AudioManager* aud
 
 ChessBoardWidget::~ChessBoardWidget()
 {
-    // Scene will delete all items
-    delete scene;
+    try {
+        logger->info("ChessBoardWidget destructor - Starting cleanup");
+        
+        // Clear all pieces manually first
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                if (pieces[r][c]) {
+                    if (scene) {
+                        scene->removeItem(pieces[r][c]);
+                    }
+                    delete pieces[r][c];
+                    pieces[r][c] = nullptr;
+                }
+            }
+        }
+        
+        // Clear highlights
+        for (QGraphicsRectItem* item : highlightItems) {
+            if (item) {
+                if (scene) {
+                    scene->removeItem(item);
+                }
+                delete item;
+            }
+        }
+        highlightItems.clear();
+        
+        // Clear hints
+        for (QGraphicsEllipseItem* item : hintItems) {
+            if (item) {
+                if (scene) {
+                    scene->removeItem(item);
+                }
+                delete item;
+            }
+        }
+        hintItems.clear();
+        
+        // Now safe to delete scene
+        if (scene) {
+            delete scene;
+            scene = nullptr;
+        }
+        
+        logger->info("ChessBoardWidget destructor - Cleanup complete");
+        
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in ChessBoardWidget destructor: %1").arg(e.what()));
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in ChessBoardWidget destructor");
+        }
+    }
 }
 
 void ChessBoardWidget::resetBoard()
@@ -1722,25 +1789,51 @@ void ChessBoardWidget::resetBoard()
         PieceColor currentPlayerColor = playerColor;
 
         logger->info("ChessBoardWidget::resetBoard() - Clearing pieces array first");
-        // Clear pieces array BEFORE clearing scene to avoid dangling pointers
+        
+        // CRITICAL: Clear pieces array BEFORE clearing scene to avoid dangling pointers
+        // We need to manually remove items from scene first, then clear our references
         for (int r = 0; r < 8; ++r) {
             for (int c = 0; c < 8; ++c) {
-                pieces[r][c] = nullptr;  // Clear pointers first
+                if (pieces[r][c]) {
+                    // Remove from scene (this doesn't delete the item yet)
+                    scene->removeItem(pieces[r][c]);
+                    // Now delete the item
+                    delete pieces[r][c];
+                    // Clear the pointer
+                    pieces[r][c] = nullptr;
+                }
             }
         }
 
-        logger->info("ChessBoardWidget::resetBoard() - Clearing scene");
-        // Now clear the scene safely
-        scene->clear();
+        logger->info("ChessBoardWidget::resetBoard() - Clearing highlight items");
         
-        logger->info("ChessBoardWidget::resetBoard() - Clearing highlightItems");
-        // Clear highlight items
+        // Clear highlight items manually
+        for (QGraphicsRectItem* item : highlightItems) {
+            if (item) {
+                scene->removeItem(item);
+                delete item;
+            }
+        }
         highlightItems.clear();
 
-        logger->info("ChessBoardWidget::resetBoard() - Clearing hintItems");
+        logger->info("ChessBoardWidget::resetBoard() - Clearing hint items");
+        
+        // Clear hint items manually
+        for (QGraphicsEllipseItem* item : hintItems) {
+            if (item) {
+                scene->removeItem(item);
+                delete item;
+            }
+        }
         hintItems.clear();
         
+        logger->info("ChessBoardWidget::resetBoard() - Now safe to clear scene");
+        
+        // Now clear any remaining items in the scene (squares, labels, etc.)
+        scene->clear();
+        
         logger->info("ChessBoardWidget::resetBoard() - Setting up board");
+        
         // Set up the board again
         setupBoard();
 
@@ -1749,6 +1842,7 @@ void ChessBoardWidget::resetBoard()
         playerColor = currentPlayerColor;
 
         logger->info("ChessBoardWidget::resetBoard() - Finished");
+        
     } catch (const std::exception& e) {
         logger->error(QString("Exception in resetBoard(): %1").arg(e.what()));
     } catch (...) {
@@ -1827,10 +1921,32 @@ void ChessBoardWidget::setPiece(const Position& pos, PieceType type, PieceColor 
 
 void ChessBoardWidget::removePiece(const Position& pos)
 {
-    if (pos.isValid() && pieces[pos.row][pos.col]) {
-        scene->removeItem(pieces[pos.row][pos.col]);
-        delete pieces[pos.row][pos.col];
-        pieces[pos.row][pos.col] = nullptr;
+    try {
+        if (!pos.isValid()) {
+            logger->warning(QString("removePiece called with invalid position: (%1,%2)")
+                .arg(pos.row).arg(pos.col));
+            return;
+        }
+        
+        if (!scene) {
+            logger->error("removePiece: scene is null");
+            return;
+        }
+        
+        ChessPieceItem* piece = pieces[pos.row][pos.col];
+        if (piece) {
+            // Remove from scene first
+            scene->removeItem(piece);
+            // Delete the item
+            delete piece;
+            // Clear the pointer
+            pieces[pos.row][pos.col] = nullptr;
+        }
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in removePiece(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in removePiece()");
     }
 }
 
@@ -1920,11 +2036,25 @@ void ChessBoardWidget::highlightSquare(const Position& pos, const QColor& color)
 
 void ChessBoardWidget::clearHighlights()
 {
-    for (QGraphicsRectItem* item : highlightItems) {
-        scene->removeItem(item);
-        delete item;
+    try {
+        if (!scene) {
+            logger->warning("clearHighlights: scene is null");
+            return;
+        }
+        
+        for (QGraphicsRectItem* item : highlightItems) {
+            if (item) {
+                scene->removeItem(item);
+                delete item;
+            }
+        }
+        highlightItems.clear();
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in clearHighlights(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in clearHighlights()");
     }
-    highlightItems.clear();
 }
 
 void ChessBoardWidget::highlightLastMove(const Position& from, const Position& to)
@@ -1940,7 +2070,6 @@ void ChessBoardWidget::highlightCheck(const Position& kingPos)
     highlightSquare(kingPos, themeManager->getCheckHighlightColor());
 }
 
-/*
 void ChessBoardWidget::setPlayerColor(PieceColor color)
 {
     try
@@ -1957,77 +2086,15 @@ void ChessBoardWidget::setPlayerColor(PieceColor color)
         playerColor = color;
         
         // Determine if board should be flipped based on player color
-        bool shouldFlip = (playerColor == PieceColor::BLACK);
-
-        if (logger)
-        {
-            logger->info(QString("[Next check ChessBoardWidget::setPlayerColor()]: Player colour is now set to %1, should board be flipped?: shouldFlip = %2")
-                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
-                .arg(shouldFlip ? "true" : "false"));
-        }
-
-        // Only update the board if the flip state is changing
-        if (flipped != shouldFlip)
-        {
-            flipped = shouldFlip;
-            
-            // Update the board layout without recreating everything
-            updateBoardLayout();
-            
-            if (logger)
-            {
-                logger->info(QString("Board flipped: %1").arg(flipped ? "true" : "false"));
-            }
-        }
-        else if (oldColor != playerColor && logger)
-        {
-            // Log that color changed but flip state didn't
-            logger->info(QString("Player color changed from %1 to %2, but board flip state remains %3")
-                .arg(oldColor == PieceColor::WHITE ? "white" : "black")
-                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
-                .arg(flipped ? "flipped" : "not flipped"));
-        }
-        
-        if (logger)
-        {
-            logger->info(QString("Player color set to %1, board flipped: %2")
-                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
-                .arg(flipped ? "true" : "false"));
-        }
-    } catch (const std::exception& e)
-    {
-        if (logger)
-        {
-            logger->error(QString("Exception in setPlayerColor: %1").arg(e.what()));
-        }
-    } catch (...)
-    {
-        if (logger)
-        {
-            logger->error("Unknown exception in setPlayerColor");
-        }
-    }
-}
-*/
-
-void ChessBoardWidget::setPlayerColor(PieceColor color)
-{
-    try
-    {
-        if (logger)
-        {
-            logger->info(QString("[Starting ChessBoardWidget::setPlayerColor()]: Old player colour is %1, board flipped state: flipped = %2")
-                .arg(playerColor == PieceColor::WHITE ? "white" : "black")
-                .arg(flipped ? "true" : "false"));
-        }
-
-        // Store the old color to check if we're actually changing it
-        PieceColor oldColor = playerColor;
-        playerColor = color;
-        
-        // Determine if board should be flipped based on player color
-        // White player should see white pieces at bottom (not flipped)
+        // White player should see white pieces at bottom (NOT flipped)
         // Black player should see black pieces at bottom (flipped)
+        // 
+        // The board coordinates are:
+        // - Row 0 = White's back rank (a1-h1)
+        // - Row 7 = Black's back rank (a8-h8)
+        //
+        // When NOT flipped (flipped=false): Row 0 is at bottom (white perspective)
+        // When flipped (flipped=true): Row 7 is at bottom (black perspective)
         bool shouldFlip = (playerColor == PieceColor::BLACK);
 
         if (logger)
@@ -2239,11 +2306,25 @@ void ChessBoardWidget::showMoveHints(const QVector<Position>& positions)
 
 void ChessBoardWidget::clearMoveHints()
 {
-    for (QGraphicsEllipseItem* item : hintItems) {
-        scene->removeItem(item);
-        delete item;
+    try {
+        if (!scene) {
+            logger->warning("clearMoveHints: scene is null");
+            return;
+        }
+        
+        for (QGraphicsEllipseItem* item : hintItems) {
+            if (item) {
+                scene->removeItem(item);
+                delete item;
+            }
+        }
+        hintItems.clear();
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in clearMoveHints(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in clearMoveHints()");
     }
-    hintItems.clear();
 }
 
 void ChessBoardWidget::setCurrentGameId(const QString& gameId) 
@@ -2275,13 +2356,50 @@ Position ChessBoardWidget::getPositionAt(const QPointF& scenePos) const
 
 void ChessBoardWidget::updateTheme()
 {
-    qDebug() << "From ChessBoardWidget::updateTheme()...";
-
-    qDebug() << "From ChessBoardWidget::updateTheme() -- Invoking resetBoard()";
-    // Recreate the board with the new theme
-    resetBoard();
-
-    qDebug() << ("From ChessBoardWidget::updateTheme() -- Finished.");
+    try {
+        if (!scene) {
+            logger->error("ChessBoardWidget::updateTheme() - scene is null");
+            return;
+        }
+        
+        if (!themeManager) {
+            logger->error("ChessBoardWidget::updateTheme() - themeManager is null");
+            return;
+        }
+        
+        logger->info("ChessBoardWidget::updateTheme() - Starting");
+        
+        // Store current board state before reset
+        bool hadPieces = false;
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 8; ++c) {
+                if (pieces[r][c]) {
+                    hadPieces = true;
+                    break;
+                }
+            }
+            if (hadPieces) break;
+        }
+        
+        logger->info(QString("ChessBoardWidget::updateTheme() - Board has pieces: %1").arg(hadPieces));
+        
+        // Recreate the board with the new theme
+        resetBoard();
+        
+        // If there were pieces before, we might need to restore them
+        // (In a real game, this would be handled by the game state update)
+        
+        logger->info("ChessBoardWidget::updateTheme() - Finished");
+        
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in ChessBoardWidget::updateTheme(): %1").arg(e.what()));
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in ChessBoardWidget::updateTheme()");
+        }
+    }
 }
 
 void ChessBoardWidget::showPromotionDialog(const Position& from, const Position& to, PieceColor color)
@@ -2323,19 +2441,35 @@ void ChessBoardWidget::mousePressEvent(QMouseEvent* event)
             // Check if there's a piece at this position
             ChessPieceItem* piece = getPieceAt(pos);
             
+            // Only allow interaction with own pieces
             if (piece && piece->getColor() == playerColor)
             {
-                // First check if it's our turn before allowing selection
+                // Check if clicking the same piece again (deselect)
+                if (selectedPosition.isValid() && selectedPosition == pos) {
+                    clearHighlights();
+                    selectedPosition = Position();
+                    if (logger) logger->debug("Deselected piece");
+                    return;
+                }
+                
+                // Check if it's our turn before allowing selection
                 bool isPlayerTurn = false;
-
-                // Check if it's our turn (emit signal to let the game manager check)
                 emit checkTurn(piece->getColor(), &isPlayerTurn);
 
-                 // Only proceed if it's the player's turn
+                // Only proceed if it's the player's turn
                 if (isPlayerTurn) {
-                    // Store the selected position
+                    // Clear previous selection
+                    clearHighlights();
+                    
+                    // Store the selected position and start drag
                     selectedPosition = pos;
                     dragStartPosition = pos;
+                    draggedPiece = piece;
+                    isDragging = false; // Will become true on mouse move
+                    
+                    // Store original position for snap-back
+                    Position boardPos = logicalToBoard(pos);
+                    dragOriginalPos = QPointF(boardPos.col * squareSize, boardPos.row * squareSize);
                     
                     // Highlight valid moves
                     highlightValidMoves(pos);
@@ -2350,18 +2484,16 @@ void ChessBoardWidget::mousePressEvent(QMouseEvent* event)
                             .arg(piece->getColor() == PieceColor::WHITE ? "white" : "black"));
                     }
                 } else {
-                    // Not player's turn - show message
-                    if (logger) logger->error("It's not your turn");
+                    // Not player's turn - don't allow selection
+                    if (logger) logger->debug("Cannot select piece - not your turn");
                 }
             } else {
                 // Clicked on opponent's piece or empty square
                 if (selectedPosition.isValid()) {
                     // Try to move the selected piece to this square
                     handleDrop(pos);
-                    clearHighlights(); // Clear highlights after move
-                } else {
-                    // Just select the square
-                    emit squareClicked(pos);
+                    clearHighlights();
+                    selectedPosition = Position(); // Clear after move attempt
                 }
             }
         }
@@ -2669,43 +2801,127 @@ void ChessBoardWidget::highlightDirectionalMoves(const Position& from, int rowDi
     }
 }
 
+void ChessBoardWidget::mouseMoveEvent(QMouseEvent* event)
+{
+    try {
+        if (!interactive) {
+            QGraphicsView::mouseMoveEvent(event);
+            return;
+        }
+        
+        // Handle piece dragging
+        if (draggedPiece && selectedPosition.isValid()) {
+            if (!isDragging) {
+                // Start dragging - bring piece to front and add visual feedback
+                isDragging = true;
+                draggedPiece->setZValue(10); // Above everything
+                draggedPiece->setOpacity(0.8); // Slight transparency while dragging
+                
+                if (logger) {
+                    logger->debug(QString("Started dragging piece from (%1,%2)")
+                        .arg(selectedPosition.row).arg(selectedPosition.col));
+                }
+            }
+            
+            // Move piece to follow cursor (centered on cursor)
+            QPointF scenePos = mapToScene(event->pos());
+            draggedPiece->setPos(scenePos.x() - squareSize / 2, scenePos.y() - squareSize / 2);
+        }
+        
+        QGraphicsView::mouseMoveEvent(event);
+        
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in mouseMoveEvent: %1").arg(e.what()));
+        }
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in mouseMoveEvent");
+        }
+    }
+}
+
 void ChessBoardWidget::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (!interactive)
-    {
-        QGraphicsView::mouseReleaseEvent(event);
-        return;
-    }
-    
-    if (event->button() == Qt::LeftButton && selectedPosition.isValid())
-    {
-        QPointF scenePos = mapToScene(event->position().toPoint());
-        Position targetPos = getPositionAt(scenePos);
+    try {
+        if (!interactive) {
+            QGraphicsView::mouseReleaseEvent(event);
+            return;
+        }
         
-        ChessPieceItem* piece = getPieceAt(selectedPosition);
-        if (piece)
-        {
-            // Check if it's player's turn before allowing move
-            bool isPlayerTurn = false;
-            emit checkTurn(piece->getColor(), &isPlayerTurn);
-
-            if (isPlayerTurn && targetPos.isValid() && targetPos != selectedPosition)
-            {
-                // Try to move the piece
-                handleDrop(targetPos);
+        // Handle piece drop after dragging
+        if (event->button() == Qt::LeftButton && draggedPiece && selectedPosition.isValid()) {
+            // Reset piece visual state
+            draggedPiece->setZValue(1);
+            draggedPiece->setOpacity(1.0);
+            
+            if (isDragging) {
+                // Get drop position
+                QPointF scenePos = mapToScene(event->pos());
+                Position dropPos = getPositionAt(scenePos);
+                
+                if (logger) {
+                    logger->debug(QString("Dropped piece at scene pos (%1,%2), board pos (%3,%4)")
+                        .arg(scenePos.x()).arg(scenePos.y())
+                        .arg(dropPos.isValid() ? dropPos.row : -1)
+                        .arg(dropPos.isValid() ? dropPos.col : -1));
+                }
+                
+                // Validate drop position
+                if (dropPos.isValid() && dropPos != selectedPosition) {
+                    // Attempt the move - server will validate
+                    handleDrop(dropPos);
+                    clearHighlights();
+                    selectedPosition = Position();
+                } else {
+                    // Invalid drop - snap back to original position with animation
+                    draggedPiece->setPos(dragOriginalPos);
+                    
+                    if (logger) {
+                        if (!dropPos.isValid()) {
+                            logger->debug("Invalid drop - outside board, piece snapped back");
+                        } else {
+                            logger->debug("Invalid drop - same position, piece snapped back");
+                        }
+                    }
+                }
+                
+                // Clear drag state
+                isDragging = false;
+                draggedPiece = nullptr;
             } else {
-                // Snap back to original position
-                Position boardPos = logicalToBoard(selectedPosition);
-                piece->setPos(boardPos.col * squareSize, boardPos.row * squareSize);
+                // Click without drag - handle as click-to-move
+                // This is already handled in mousePressEvent
             }
         }
         
-        // Clear highlights and reset selection
-        clearHighlights();
-        selectedPosition = Position();
+        QGraphicsView::mouseReleaseEvent(event);
+        
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in mouseReleaseEvent: %1").arg(e.what()));
+        }
+        // Reset drag state on error
+        if (draggedPiece) {
+            draggedPiece->setZValue(1);
+            draggedPiece->setOpacity(1.0);
+            draggedPiece->setPos(dragOriginalPos);
+        }
+        isDragging = false;
+        draggedPiece = nullptr;
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in mouseReleaseEvent");
+        }
+        // Reset drag state on error
+        if (draggedPiece) {
+            draggedPiece->setZValue(1);
+            draggedPiece->setOpacity(1.0);
+            draggedPiece->setPos(dragOriginalPos);
+        }
+        isDragging = false;
+        draggedPiece = nullptr;
     }
-    
-    QGraphicsView::mouseReleaseEvent(event);
 }
 
 void ChessBoardWidget::dragEnterEvent(QDragEnterEvent* event)
@@ -2805,17 +3021,43 @@ void ChessBoardWidget::updateBoardSize()
 void ChessBoardWidget::createSquares()
 {
     try {
+        if (!scene) {
+            logger->error("createSquares: scene is null");
+            return;
+        }
+        
+        if (!themeManager) {
+            logger->error("createSquares: themeManager is null");
+            return;
+        }
+        
+        logger->info("createSquares: Starting");
+        
         // Remove existing squares and labels
+        // We need to be careful here - only remove items that are NOT pieces
+        QList<QGraphicsItem*> itemsToRemove;
+        
         for (QGraphicsItem* item : scene->items()) {
-            if (dynamic_cast<QGraphicsRectItem*>(item) && item->zValue() == 0) {
-                scene->removeItem(item);
-                delete item;
+            // Check if this is a square (QGraphicsRectItem with zValue 0)
+            QGraphicsRectItem* rectItem = dynamic_cast<QGraphicsRectItem*>(item);
+            if (rectItem && rectItem->zValue() == 0) {
+                itemsToRemove.append(item);
             }
-            if (dynamic_cast<QGraphicsTextItem*>(item) && item->zValue() == 0.1) {
-                scene->removeItem(item);
-                delete item;
+            
+            // Check if this is a label (QGraphicsTextItem with zValue 0.1)
+            QGraphicsTextItem* textItem = dynamic_cast<QGraphicsTextItem*>(item);
+            if (textItem && textItem->zValue() == 0.1) {
+                itemsToRemove.append(item);
             }
         }
+        
+        // Now remove and delete the items
+        for (QGraphicsItem* item : itemsToRemove) {
+            scene->removeItem(item);
+            delete item;
+        }
+        
+        logger->info(QString("createSquares: Removed %1 old squares/labels").arg(itemsToRemove.size()));
         
         // Create new squares
         QColor lightColor = themeManager->getLightSquareColor();
@@ -2823,7 +3065,18 @@ void ChessBoardWidget::createSquares()
         
         for (int r = 0; r < 8; ++r) {
             for (int c = 0; c < 8; ++c) {
-                QGraphicsRectItem* square = new QGraphicsRectItem(c * squareSize, r * squareSize, squareSize, squareSize);
+                QGraphicsRectItem* square = new QGraphicsRectItem(
+                    c * squareSize, 
+                    r * squareSize, 
+                    squareSize, 
+                    squareSize
+                );
+                
+                if (!square) {
+                    logger->error(QString("Failed to create square at (%1,%2)").arg(r).arg(c));
+                    continue;
+                }
+                
                 square->setBrush(((r + c) % 2 == 0) ? lightColor : darkColor);
                 square->setPen(Qt::NoPen);
                 square->setZValue(0); // Ensure squares are below pieces
@@ -2839,6 +3092,12 @@ void ChessBoardWidget::createSquares()
             // Rank labels (1-8)
             int displayRank = flipped ? (r + 1) : (8 - r);
             QGraphicsTextItem* rankLabel = new QGraphicsTextItem(QString::number(displayRank));
+            
+            if (!rankLabel) {
+                logger->error(QString("Failed to create rank label for row %1").arg(r));
+                continue;
+            }
+            
             rankLabel->setFont(font);
             rankLabel->setDefaultTextColor((r % 2 == 0) ? darkColor : lightColor);
             rankLabel->setPos(squareSize * 0.05, r * squareSize + squareSize * 0.05);
@@ -2850,6 +3109,12 @@ void ChessBoardWidget::createSquares()
             // File labels (a-h)
             char displayFile = flipped ? ('h' - c) : ('a' + c);
             QGraphicsTextItem* fileLabel = new QGraphicsTextItem(QString(QChar(displayFile)));
+            
+            if (!fileLabel) {
+                logger->error(QString("Failed to create file label for col %1").arg(c));
+                continue;
+            }
+            
             fileLabel->setFont(font);
             fileLabel->setDefaultTextColor((c % 2 == 1) ? darkColor : lightColor);
             fileLabel->setPos(c * squareSize + squareSize * 0.85, squareSize * 7.8);
@@ -2857,11 +3122,10 @@ void ChessBoardWidget::createSquares()
             scene->addItem(fileLabel);
         }
         
-        if (logger) {
-            logger->info(QString("Created squares with flipped=%1, showing %2 perspective")
-                .arg(flipped ? "true" : "false")
-                .arg(flipped ? "black" : "white"));
-        }
+        logger->info(QString("Created squares with flipped=%1, showing %2 perspective")
+            .arg(flipped ? "true" : "false")
+            .arg(flipped ? "black" : "white"));
+            
     } catch (const std::exception& e) {
         if (logger) {
             logger->error(QString("Exception in createSquares(): %1").arg(e.what()));
@@ -2875,21 +3139,42 @@ void ChessBoardWidget::createSquares()
 
 Position ChessBoardWidget::boardToLogical(const Position& pos) const
 {
+    // Inverse transformation of logicalToBoard
+    // Qt coordinate system: (0,0) is TOP-LEFT, (7,7) is BOTTOM-RIGHT
+    
     if (flipped) {
-        // When flipped, convert board coordinates back to logical coordinates
-        return Position(7 - pos.row, 7 - pos.col);
+        // Black perspective: flip columns only to reverse the transformation
+        // Visual col 0 → Logical col 7, Visual col 7 → Logical col 0
+        return Position(pos.row, 7 - pos.col);
     }
-    return pos;
+    
+    // White perspective: flip rows only to reverse the transformation
+    // Visual row 0 → Logical row 7, Visual row 7 → Logical row 0
+    return Position(7 - pos.row, pos.col);
 }
 
 Position ChessBoardWidget::logicalToBoard(const Position& pos) const
 {
+    // Qt coordinate system: (0,0) is TOP-LEFT, (7,7) is BOTTOM-RIGHT
+    // Logical board: row 0 = rank 1 (white's back rank), row 7 = rank 8 (black's back rank)
+    // 
+    // White perspective (flipped=false): white pieces should be at BOTTOM (visual row 7)
+    //   - Logical row 0 (white pieces) → Visual row 7 (bottom)
+    //   - Logical row 7 (black pieces) → Visual row 0 (top)
+    //
+    // Black perspective (flipped=true): black pieces should be at BOTTOM (visual row 7)
+    //   - Logical row 7 (black pieces) → Visual row 7 (bottom)
+    //   - Logical row 0 (white pieces) → Visual row 0 (top)
+    
     if (flipped) {
-        // When flipped, convert logical coordinates to flipped board coordinates
-        // This ensures black player sees black pieces at bottom
-        return Position(7 - pos.row, 7 - pos.col);
+        // Black perspective: flip columns only, keep rows as-is
+        // This makes black pieces appear at bottom and reverses file order (h-a instead of a-h)
+        return Position(pos.row, 7 - pos.col);
     }
-    return pos;
+    
+    // White perspective: flip rows only, keep columns as-is
+    // This makes white pieces appear at bottom with standard file order (a-h)
+    return Position(7 - pos.row, pos.col);
 }
 
 void ChessBoardWidget::startDrag(const Position& pos)
@@ -3066,6 +3351,16 @@ int MoveHistoryWidget::getMoveCount() const {
 
 void MoveHistoryWidget::setupUI() {
     QVBoxLayout* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(5, 5, 5, 5);
+    
+    // Add title label
+    QLabel* titleLabel = new QLabel("Move History", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(titleFont.pointSize() + 1);
+    titleLabel->setFont(titleFont);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(titleLabel);
     
     // Create table for move history
     moveTable = new QTableWidget(this);
@@ -3074,9 +3369,23 @@ void MoveHistoryWidget::setupUI() {
     moveTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     moveTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     moveTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    moveTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     moveTable->verticalHeader()->setVisible(false);
     moveTable->setAlternatingRowColors(true);
+    moveTable->setShowGrid(true);
+    
+    // Set fixed column widths for better readability
+    moveTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    moveTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    moveTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    moveTable->setColumnWidth(0, 40);  // Move number column
+    
+    // Increase font size for better readability
+    QFont tableFont = moveTable->font();
+    tableFont.setPointSize(tableFont.pointSize() + 1);
+    moveTable->setFont(tableFont);
+    
+    // Set minimum height to show at least 10 moves
+    moveTable->setMinimumHeight(280);
     
     layout->addWidget(moveTable);
     
@@ -3135,24 +3444,51 @@ int CapturedPiecesWidget::getMaterialAdvantage() const {
 
 void CapturedPiecesWidget::setupUI() {
     QVBoxLayout* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(5, 5, 5, 5);
+    layout->setSpacing(8);
+    
+    // Add title label
+    QLabel* titleLabel = new QLabel("Captured Pieces", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(titleFont.pointSize() + 1);
+    titleLabel->setFont(titleFont);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(titleLabel);
     
     // Create labels for captured pieces
-    whiteCapturedLabel = new QLabel(this);
     blackCapturedLabel = new QLabel(this);
+    whiteCapturedLabel = new QLabel(this);
     materialAdvantageLabel = new QLabel(this);
     
-    whiteCapturedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     blackCapturedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    whiteCapturedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     materialAdvantageLabel->setAlignment(Qt::AlignCenter);
     
-    QFont font = whiteCapturedLabel->font();
-    font.setPointSize(font.pointSize() + 2);
-    whiteCapturedLabel->setFont(font);
-    blackCapturedLabel->setFont(font);
+    // Increase font size for piece symbols
+    QFont pieceFont = blackCapturedLabel->font();
+    pieceFont.setPointSize(pieceFont.pointSize() + 4);
+    blackCapturedLabel->setFont(pieceFont);
+    whiteCapturedLabel->setFont(pieceFont);
     
-    font.setBold(true);
-    materialAdvantageLabel->setFont(font);
+    // Set word wrap and minimum height for better display
+    blackCapturedLabel->setWordWrap(true);
+    whiteCapturedLabel->setWordWrap(true);
+    blackCapturedLabel->setMinimumHeight(40);
+    whiteCapturedLabel->setMinimumHeight(40);
     
+    // Style the labels with background
+    blackCapturedLabel->setStyleSheet("background-color: rgba(50,50,50,0.1); border-radius: 5px; padding: 8px;");
+    whiteCapturedLabel->setStyleSheet("background-color: rgba(240,240,240,0.3); border-radius: 5px; padding: 8px;");
+    
+    // Material advantage with bold font
+    QFont advantageFont = materialAdvantageLabel->font();
+    advantageFont.setBold(true);
+    advantageFont.setPointSize(advantageFont.pointSize() + 2);
+    materialAdvantageLabel->setFont(advantageFont);
+    materialAdvantageLabel->setMinimumHeight(30);
+    
+    // Add widgets in order: black pieces (top), advantage, white pieces (bottom)
     layout->addWidget(blackCapturedLabel);
     layout->addWidget(materialAdvantageLabel);
     layout->addWidget(whiteCapturedLabel);
@@ -3163,7 +3499,7 @@ void CapturedPiecesWidget::setupUI() {
 }
 
 void CapturedPiecesWidget::updateDisplay() {
-    // Sort captured pieces by value
+    // Sort captured pieces by value (highest first)
     std::sort(whiteCapturedPieces.begin(), whiteCapturedPieces.end(), [this](PieceType a, PieceType b) {
         return getPieceValue(a) > getPieceValue(b);
     });
@@ -3172,31 +3508,58 @@ void CapturedPiecesWidget::updateDisplay() {
         return getPieceValue(a) > getPieceValue(b);
     });
     
-    // Create strings for captured pieces
-    QString whiteText;
+    // Count pieces by type for white
+    QMap<PieceType, int> whiteCounts;
     for (PieceType type : whiteCapturedPieces) {
-        whiteText += getPieceSymbol(type, PieceColor::WHITE);
+        whiteCounts[type]++;
+    }
+    
+    // Count pieces by type for black
+    QMap<PieceType, int> blackCounts;
+    for (PieceType type : blackCapturedPieces) {
+        blackCounts[type]++;
+    }
+    
+    // Create display strings with counts
+    QString whiteText;
+    QList<PieceType> pieceOrder = {PieceType::QUEEN, PieceType::ROOK, PieceType::BISHOP, PieceType::KNIGHT, PieceType::PAWN};
+    for (PieceType type : pieceOrder) {
+        if (whiteCounts.contains(type) && whiteCounts[type] > 0) {
+            whiteText += getPieceSymbol(type, PieceColor::WHITE);
+            if (whiteCounts[type] > 1) {
+                whiteText += QString("×%1 ").arg(whiteCounts[type]);
+            } else {
+                whiteText += " ";
+            }
+        }
     }
     
     QString blackText;
-    for (PieceType type : blackCapturedPieces) {
-        blackText += getPieceSymbol(type, PieceColor::BLACK);
+    for (PieceType type : pieceOrder) {
+        if (blackCounts.contains(type) && blackCounts[type] > 0) {
+            blackText += getPieceSymbol(type, PieceColor::BLACK);
+            if (blackCounts[type] > 1) {
+                blackText += QString("×%1 ").arg(blackCounts[type]);
+            } else {
+                blackText += " ";
+            }
+        }
     }
     
-    // Set label texts
-    whiteCapturedLabel->setText(whiteText);
-    blackCapturedLabel->setText(blackText);
+    // Set label texts with fallback for empty
+    whiteCapturedLabel->setText(whiteText.isEmpty() ? "None" : whiteText.trimmed());
+    blackCapturedLabel->setText(blackText.isEmpty() ? "None" : blackText.trimmed());
     
-    // Set material advantage text
+    // Set material advantage text with color coding
     if (materialAdvantage > 0) {
-        materialAdvantageLabel->setText(QString("+%1").arg(materialAdvantage));
-        materialAdvantageLabel->setStyleSheet("color: green;");
+        materialAdvantageLabel->setText(QString("Material: +%1").arg(materialAdvantage));
+        materialAdvantageLabel->setStyleSheet("color: #2E7D32; font-weight: bold;");
     } else if (materialAdvantage < 0) {
-        materialAdvantageLabel->setText(QString("%1").arg(materialAdvantage));
-        materialAdvantageLabel->setStyleSheet("color: red;");
+        materialAdvantageLabel->setText(QString("Material: %1").arg(materialAdvantage));
+        materialAdvantageLabel->setStyleSheet("color: #C62828; font-weight: bold;");
     } else {
-        materialAdvantageLabel->setText("0");
-        materialAdvantageLabel->setStyleSheet("");
+        materialAdvantageLabel->setText("Material: Even");
+        materialAdvantageLabel->setStyleSheet("color: #757575; font-weight: bold;");
     }
 }
 
@@ -5056,6 +5419,9 @@ void GameManager::startNewGame(const QJsonObject& gameData)
         // Set player color
         playerColor = (yourColor == "white") ? PieceColor::WHITE : PieceColor::BLACK;
         
+        // Update logger prefix with player color
+        logger->setPlayerColorPrefix(yourColor == "white" ? "WHITE" : "BLACK");
+        
         // Set game as active
         gameActive = true;
         
@@ -5231,87 +5597,155 @@ void GameManager::parseMoveHistory(const QJsonArray& moveHistoryArray) {
 MPChessClient::MPChessClient(QWidget* parent)
     : QMainWindow(parent), ui(new Ui::MPChessClient), replayMode(false), currentReplayIndex(-1),
       connectAction(nullptr), disconnectAction(nullptr), loginDialog(nullptr), 
-      playerInfoLabel(nullptr), sidePanel(nullptr), sidePanelLayout(nullptr),
+      playerInfoLabel(nullptr), playerNameLabel(nullptr), opponentNameLabel(nullptr),
+      sidePanel(nullptr), sidePanelLayout(nullptr),
       // Initialize all pointers to nullptr
       boardWidget(nullptr), moveHistoryWidget(nullptr), capturedPiecesWidget(nullptr),
       gameTimerWidget(nullptr), analysisWidget(nullptr), profileWidget(nullptr),
       leaderboardWidget(nullptr), matchmakingWidget(nullptr), gameHistoryWidget(nullptr),
       connectionStatusLabel(nullptr), gameStatusLabel(nullptr), statusMessagesWindow(nullptr),
-      chatDisplay(nullptr), chatInput(nullptr)
+      chatDisplay(nullptr), chatInput(nullptr),
+      // Initialize replay controls
+      replaySlider(nullptr), replayPrevButton(nullptr), replayPlayButton(nullptr), replayNextButton(nullptr)
 {    
-    // Initialize core components
-    logger = new Logger(this);
-    logger->setLogLevel(Logger::LogLevel::DEBUG);
-    logger->setLogToFile(true);
-
-    logger->info("MPChessClient: Starting initialization");
-
-    try{
-        networkManager = new NetworkManager(logger, this);
-        themeManager = new ThemeManager(this);
-        audioManager = new AudioManager(this);
-        gameManager = new GameManager(networkManager, logger, this);
+    try {
+        // Initialize core components FIRST
+        logger = new Logger(this);
+        if (!logger) {
+            qCritical() << "FATAL: Failed to create Logger";
+            throw std::runtime_error("Failed to create Logger");
+        }
         
-        // Set up UI
+        logger->setLogLevel(Logger::LogLevel::DEBUG);
+        logger->setLogToFile(true);
+
+        logger->info("MPChessClient: Starting initialization");
+
+        // Create managers
+        networkManager = new NetworkManager(logger, this);
+        if (!networkManager) {
+            logger->error("FATAL: Failed to create NetworkManager");
+            throw std::runtime_error("Failed to create NetworkManager");
+        }
+        
+        themeManager = new ThemeManager(this);
+        if (!themeManager) {
+            logger->error("FATAL: Failed to create ThemeManager");
+            throw std::runtime_error("Failed to create ThemeManager");
+        }
+        
+        audioManager = new AudioManager(this);
+        if (!audioManager) {
+            logger->error("FATAL: Failed to create AudioManager");
+            throw std::runtime_error("Failed to create AudioManager");
+        }
+        
+        gameManager = new GameManager(networkManager, logger, this);
+        if (!gameManager) {
+            logger->error("FATAL: Failed to create GameManager");
+            throw std::runtime_error("Failed to create GameManager");
+        }
+        
+        // Set up UI - this creates all widgets including status bar
         logger->info("MPChessClient: Setting up UI");
         setupUI();
 
-        // Set initial connection status
-        if (connectionStatusLabel) {
-            connectionStatusLabel->setText("Not Connected");
-            connectionStatusLabel->setStyleSheet("color: red;");
-        } else {
-            logger->warning("connectionStatusLabel is null in constructor");
-        }
-    
-        logger->info("MPChessClient: NetworkManager connects come next...");
-        if (networkManager)
-        {
-            // Connect network signals
-            connect(networkManager, &NetworkManager::connected, this, &MPChessClient::onConnected);
-            connect(networkManager, &NetworkManager::disconnected, this, &MPChessClient::onDisconnected);
-            connect(networkManager, &NetworkManager::connectionError, this, &MPChessClient::onConnectionError);
-            connect(networkManager, &NetworkManager::authenticationResult, this, &MPChessClient::onAuthenticationResult);
-            connect(networkManager, &NetworkManager::gameStarted, this, &MPChessClient::onGameStarted);
-            connect(networkManager, &NetworkManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
-            connect(networkManager, &NetworkManager::gameOver, this, &MPChessClient::onGameOver);
-            connect(networkManager, &NetworkManager::moveResult, this, &MPChessClient::onMoveResult);
-            connect(networkManager, &NetworkManager::moveRecommendationsReceived, this, &MPChessClient::onMoveRecommendationsReceived);
-            connect(networkManager, &NetworkManager::matchmakingStatus, this, &MPChessClient::onMatchmakingStatusReceived);
-            connect(networkManager, &NetworkManager::gameHistoryReceived, this, &MPChessClient::onGameHistoryReceived);
-            connect(networkManager, &NetworkManager::gameAnalysisReceived, this, &MPChessClient::onGameAnalysisReceived);
-            connect(networkManager, &NetworkManager::drawOfferReceived, this, &MPChessClient::onDrawOfferReceived);
-            connect(networkManager, &NetworkManager::drawResponseReceived, this, &MPChessClient::onDrawResponseReceived);
-            connect(networkManager, &NetworkManager::leaderboardReceived, this, &MPChessClient::onLeaderboardReceived);
-        }
-        else
-        {
-            logger->error("NetworkManager is null when setting up connections");
-        }
-
-        logger->info("MPChessClient: GameManager connects come next...");
-        if(gameManager)
-        {   
-            // Connect game manager signals
-            connect(gameManager, &GameManager::gameStarted, this, &MPChessClient::onGameStarted);
-            connect(gameManager, &GameManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
-            connect(gameManager, &GameManager::gameEnded, this, &MPChessClient::onGameOver);
-            connect(gameManager, &GameManager::moveRecommendationsUpdated, analysisWidget, &AnalysisWidget::setMoveRecommendations);
-        }
-        else
-        {
-            logger->error("GameManager is null when setting up connections");
+        // Verify critical UI components were created
+        if (!connectionStatusLabel) {
+            logger->error("FATAL: connectionStatusLabel was not created in setupUI");
+            throw std::runtime_error("connectionStatusLabel not created");
         }
         
+        if (!gameStatusLabel) {
+            logger->error("FATAL: gameStatusLabel was not created in setupUI");
+            throw std::runtime_error("gameStatusLabel not created");
+        }
+        
+        if (!statusMessagesWindow) {
+            logger->error("FATAL: statusMessagesWindow was not created in setupUI");
+            throw std::runtime_error("statusMessagesWindow not created");
+        }
+        
+        if (!boardWidget) {
+            logger->error("FATAL: boardWidget was not created in setupUI");
+            throw std::runtime_error("boardWidget not created");
+        }
+
+        // Smart window positioning for multiple instances
+        logger->info("MPChessClient: Positioning window...");
+        positionWindow();
+
+        // Set initial connection status - NOW SAFE because widgets exist
+        connectionStatusLabel->setText("Not Connected");
+        connectionStatusLabel->setStyleSheet("color: red; font-weight: bold; padding: 2px 8px;");
+    
+        logger->info("MPChessClient: NetworkManager connects come next...");
+        
+        // Connect network signals - NOW SAFE because UI is fully initialized
+        connect(networkManager, &NetworkManager::connected, this, &MPChessClient::onConnected);
+        connect(networkManager, &NetworkManager::disconnected, this, &MPChessClient::onDisconnected);
+        connect(networkManager, &NetworkManager::connectionError, this, &MPChessClient::onConnectionError);
+        connect(networkManager, &NetworkManager::authenticationResult, this, &MPChessClient::onAuthenticationResult);
+        connect(networkManager, &NetworkManager::gameStarted, this, &MPChessClient::onGameStarted);
+        connect(networkManager, &NetworkManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
+        connect(networkManager, &NetworkManager::gameOver, this, &MPChessClient::onGameOver);
+        connect(networkManager, &NetworkManager::moveResult, this, &MPChessClient::onMoveResult);
+        connect(networkManager, &NetworkManager::moveRecommendationsReceived, this, &MPChessClient::onMoveRecommendationsReceived);
+        connect(networkManager, &NetworkManager::matchmakingStatus, this, &MPChessClient::onMatchmakingStatusReceived);
+        connect(networkManager, &NetworkManager::gameHistoryReceived, this, &MPChessClient::onGameHistoryReceived);
+        connect(networkManager, &NetworkManager::gameAnalysisReceived, this, &MPChessClient::onGameAnalysisReceived);
+        connect(networkManager, &NetworkManager::drawOfferReceived, this, &MPChessClient::onDrawOfferReceived);
+        connect(networkManager, &NetworkManager::drawResponseReceived, this, &MPChessClient::onDrawResponseReceived);
+        connect(networkManager, &NetworkManager::leaderboardReceived, this, &MPChessClient::onLeaderboardReceived);
+
+        logger->info("MPChessClient: GameManager connects come next...");
+        
+        // Connect game manager signals
+        connect(gameManager, &GameManager::gameStarted, this, &MPChessClient::onGameStarted);
+        connect(gameManager, &GameManager::gameStateUpdated, this, &MPChessClient::onGameStateUpdated);
+        connect(gameManager, &GameManager::gameEnded, this, &MPChessClient::onGameOver);
+        connect(gameManager, &GameManager::moveRecommendationsUpdated, analysisWidget, &AnalysisWidget::setMoveRecommendations);
+        
         logger->info("MPChessClient: connects done, loading settings...");
+        
         // Load settings
         loadSettings();
         
-        logger->info("MPChessClient: connects done, updating theme...");
-        // DEFER theme update until after constructor completes
-        QTimer::singleShot(0, this, [this]() {
-            updateTheme();
+        logger->info("MPChessClient: Settings loaded, applying theme...");
+        
+
+        // Apply theme immediately (safer)
+        logger->info("MPChessClient: Applying theme immediately...");
+        updateTheme();
+        logger->info("MPChessClient: Theme applied successfully");
+
+        /**
+        // Apply theme AFTER everything is initialized
+        // Use a longer delay to ensure all widgets are fully constructed
+        QTimer::singleShot(100, this, [this]() {
+            try {
+                logger->info("MPChessClient: Deferred theme update starting...");
+                
+                // Verify widgets still exist
+                if (!boardWidget) {
+                    logger->error("boardWidget is null in deferred theme update");
+                    return;
+                }
+                
+                if (!capturedPiecesWidget) {
+                    logger->error("capturedPiecesWidget is null in deferred theme update");
+                    return;
+                }
+                
+                updateTheme();
+                logger->info("MPChessClient: Deferred theme update completed");
+            } catch (const std::exception& e) {
+                logger->error(QString("Exception in deferred theme update: %1").arg(e.what()));
+            } catch (...) {
+                logger->error("Unknown exception in deferred theme update");
+            }
         });
+        **/
 
         logger->info("MPChessClient: Final validation...");
         logger->info(QString("boardWidget valid: %1").arg(boardWidget != nullptr));
@@ -5320,30 +5754,80 @@ MPChessClient::MPChessClient(QWidget* parent)
         logger->info(QString("gameManager valid: %1").arg(gameManager != nullptr));
         logger->info(QString("themeManager valid: %1").arg(themeManager != nullptr));
         logger->info(QString("audioManager valid: %1").arg(audioManager != nullptr));
+        logger->info(QString("connectionStatusLabel valid: %1").arg(connectionStatusLabel != nullptr));
+        logger->info(QString("gameStatusLabel valid: %1").arg(gameStatusLabel != nullptr));
+        logger->info(QString("statusMessagesWindow valid: %1").arg(statusMessagesWindow != nullptr));
 
-        logger->info("MPChessClient initialized");
+        logger->info("MPChessClient initialized successfully");
+        
     } catch (const std::exception& e) {
-        logger->error(QString("Exception during initialization: %1").arg(e.what()));
+        QString errorMsg = QString("FATAL Exception during initialization: %1").arg(e.what());
+        if (logger) {
+            logger->error(errorMsg);
+        } else {
+            qCritical() << errorMsg;
+        }
+        
+        // Show error dialog
+        QMessageBox::critical(nullptr, "Initialization Error", 
+            "Failed to initialize Chess Client:\n" + errorMsg);
+        
+        // Rethrow to prevent partially-initialized object
+        throw;
+        
     } catch (...) {
-        logger->error("Unknown exception during initialization");
+        QString errorMsg = "FATAL Unknown exception during initialization";
+        if (logger) {
+            logger->error(errorMsg);
+        } else {
+            qCritical() << errorMsg;
+        }
+        
+        QMessageBox::critical(nullptr, "Initialization Error", 
+            "Failed to initialize Chess Client: Unknown error");
+        
+        throw;
     }
 }
 
 MPChessClient::~MPChessClient()
 {
-    // Save settings
-    saveSettings();
-    
-    // Disconnect from server
-    disconnectFromServer();
-    
-    // Clean up dialogs
-    if (loginDialog) {
-        delete loginDialog;
-        loginDialog = nullptr;
+    try {
+        // Save settings
+        if (logger) {
+            logger->info("MPChessClient destructor - saving settings");
+        }
+        saveSettings();
+        
+        // Disconnect from server
+        if (networkManager) {
+            if (logger) {
+                logger->info("MPChessClient destructor - disconnecting from server");
+            }
+            disconnectFromServer();
+        }
+        
+        // Clean up dialogs
+        if (loginDialog) {
+            delete loginDialog;
+            loginDialog = nullptr;
+        }
+        
+        // Delete UI
+        if (ui) {
+            delete ui;
+            ui = nullptr;
+        }
+        
+        if (logger) {
+            logger->info("MPChessClient destructor - completed successfully");
+        }
+    } catch (const std::exception& e) {
+        // Can't use logger here as it might be deleted
+        qCritical() << "Exception in MPChessClient destructor:" << e.what();
+    } catch (...) {
+        qCritical() << "Unknown exception in MPChessClient destructor";
     }
-    
-    delete ui;
 }
 
 bool MPChessClient::connectToServer(const QString& host, int port)
@@ -5382,25 +5866,58 @@ void MPChessClient::disconnectFromServer() {
 }
 
 void MPChessClient::closeEvent(QCloseEvent* event) {
-    // Ask for confirmation if in an active game
-    if (gameManager->isGameActive()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
-            this, "Exit Confirmation",
-            "You are in an active game. Are you sure you want to exit?",
-            QMessageBox::Yes | QMessageBox::No
-        );
-        
-        if (reply == QMessageBox::No) {
-            event->ignore();
-            return;
+    try {
+        // Ask for confirmation if in an active game
+        if (gameManager && gameManager->isGameActive()) {
+            QMessageBox::StandardButton reply = QMessageBox::question(
+                this, "Exit Confirmation",
+                "You are in an active game. Exiting will resign the game and your opponent will win. Are you sure?",
+                QMessageBox::Yes | QMessageBox::No
+            );
+            
+            if (reply == QMessageBox::No) {
+                event->ignore();
+                return;
+            }
+            
+            // Resign from the active game
+            if (logger) {
+                logger->info("Player closing application - resigning from active game");
+            }
+            
+            // Only resign if still connected
+            if (networkManager && networkManager->isConnected()) {
+                gameManager->resign();
+                
+                // Give server time to process resignation
+                QEventLoop loop;
+                QTimer::singleShot(300, &loop, &QEventLoop::quit);
+                loop.exec();
+            }
         }
+        
+        // Disconnect from server gracefully
+        if (networkManager) {
+            disconnectFromServer();
+        }
+        
+        // Process any pending events before accepting close
+        QCoreApplication::processEvents();
+        
+        // Accept the close event
+        event->accept();
+        
+    } catch (const std::exception& e) {
+        if (logger) {
+            logger->error(QString("Exception in closeEvent: %1").arg(e.what()));
+        }
+        event->accept(); // Accept anyway to allow closing
+    } catch (...) {
+        if (logger) {
+            logger->error("Unknown exception in closeEvent");
+        }
+        event->accept(); // Accept anyway to allow closing
     }
-    
-    // Disconnect from server
-    disconnectFromServer();
-    
-    // Accept the close event
-    event->accept();
 }
 
 void MPChessClient::resizeEvent(QResizeEvent* event) {
@@ -5417,17 +5934,38 @@ void MPChessClient::resizeEvent(QResizeEvent* event) {
 void MPChessClient::onConnected()
 {
     try {
+        logger->info("onConnected: Starting...");
+        
+        // Comprehensive null checks
         if (!connectionStatusLabel) {
-            logger->error("connectionStatusLabel is null in onConnected");
+            logger->error("onConnected: connectionStatusLabel is null - UI not fully initialized");
+            showMessage("Connection established but UI not ready", true);
             return;
         }
         
+        if (!statusBar()) {
+            logger->error("onConnected: statusBar() is null");
+            return;
+        }
+        
+        logger->info("onConnected: Updating connection status label...");
         connectionStatusLabel->setText("Connected");
         connectionStatusLabel->setStyleSheet("color: green; font-weight: bold; padding: 2px 8px;");
         
         // Update menu actions
-        if (connectAction) connectAction->setEnabled(false);
-        if (disconnectAction) disconnectAction->setEnabled(true);
+        if (connectAction) {
+            connectAction->setEnabled(false);
+            logger->info("onConnected: Disabled connect action");
+        } else {
+            logger->warning("onConnected: connectAction is null");
+        }
+        
+        if (disconnectAction) {
+            disconnectAction->setEnabled(true);
+            logger->info("onConnected: Enabled disconnect action");
+        } else {
+            logger->warning("onConnected: disconnectAction is null");
+        }
         
         logger->info("Connected to server successfully");
         
@@ -5435,23 +5973,38 @@ void MPChessClient::onConnected()
         showMessage("Connected to server successfully", false);
         
         // Show login dialog after successful connection with proper error handling
+        logger->info("onConnected: Scheduling login dialog...");
         QTimer::singleShot(500, this, [this]() {
             try {
+                logger->info("onConnected: Deferred login dialog starting...");
+                
                 // Double-check we're still connected before showing login dialog
-                if (networkManager && networkManager->isConnected()) {
-                    showLoginDialog();
-                } else {
+                if (!networkManager) {
+                    logger->error("onConnected: networkManager is null in deferred login");
+                    showMessage("Internal error: NetworkManager not available", true);
+                    return;
+                }
+                
+                if (!networkManager->isConnected()) {
                     logger->warning("Connection lost before showing login dialog");
                     showMessage("Connection lost", true);
+                    return;
                 }
+                
+                logger->info("onConnected: Showing login dialog...");
+                showLoginDialog();
+                logger->info("onConnected: Login dialog shown");
+                
             } catch (const std::exception& e) {
-                logger->error(QString("Exception in delayed showLoginDialog: %1").arg(e.what()));
+                logger->error(QString("Exception in deferred showLoginDialog: %1").arg(e.what()));
                 showMessage("Error showing login dialog", true);
             } catch (...) {
-                logger->error("Unknown exception in delayed showLoginDialog");
+                logger->error("Unknown exception in deferred showLoginDialog");
                 showMessage("Unknown error showing login dialog", true);
             }
         });
+        
+        logger->info("onConnected: Finished successfully");
 
     } catch (const std::exception& e) {
         logger->error(QString("Exception in onConnected(): %1").arg(e.what()));
@@ -5831,6 +6384,12 @@ void MPChessClient::onMoveResult(bool success, const QString& message) {
         
         // Play error sound
         audioManager->playSoundEffect(AudioManager::SoundEffect::ERROR);
+        
+        // Refresh board from last known good game state to fix any visual corruption
+        QJsonObject currentState = gameManager->getCurrentGameState();
+        if (!currentState.isEmpty()) {
+            updateBoardFromGameState(currentState);
+        }
     }
 }
 
@@ -6189,17 +6748,17 @@ void MPChessClient::setupUI()
         logger->info("In MPChessClient::setupUI() -- Creating vertical navigation panel");
         // Create left navigation panel with vertically stacked buttons
         QWidget* navigationPanel = new QWidget(centralWidget);
-        navigationPanel->setFixedWidth(120);
+        navigationPanel->setFixedWidth(180);
         navigationPanel->setStyleSheet(
             "QWidget {"
-            "    background-color: #f8f9fa;"
-            "    border-right: 1px solid #dee2e6;"
+            "    background-color: #2c3e50;"  // Dark blue-grey background
+            "    border-right: 2px solid #34495e;"
             "}"
         );
         
         QVBoxLayout* navLayout = new QVBoxLayout(navigationPanel);
-        navLayout->setSpacing(2);
-        navLayout->setContentsMargins(5, 10, 5, 10);
+        navLayout->setSpacing(4);  // Increased spacing between buttons
+        navLayout->setContentsMargins(8, 15, 8, 15);  // Increased margins
         
         logger->info("In MPChessClient::setupUI() -- Creating mainStack");
         // Create main stack first
@@ -6211,28 +6770,39 @@ void MPChessClient::setupUI()
 
         // Create navigation buttons (stacked vertically with horizontal text)
         QStringList tabNames = {"Home", "Play", "Analysis", "Profile", "Leaderboard"};
+        QStringList tabIcons = {"🏠", "♟", "📊", "👤", "🏆"};  // Unicode icons for visual appeal
         
         // Create buttons and store them as member variables or use proper capture
         for (int i = 0; i < tabNames.size(); ++i) {
-            QPushButton* button = new QPushButton(tabNames[i], navigationPanel);
-            button->setMinimumHeight(35);
+            QPushButton* button = new QPushButton(tabIcons[i] + "  " + tabNames[i], navigationPanel);
+            button->setMinimumHeight(50);  // DOUBLED from 25 to 50
+            button->setMaximumHeight(50);  // DOUBLED from 25 to 50
             button->setCheckable(true);
             button->setStyleSheet(
                 "QPushButton {"
                 "    text-align: left;"
-                "    padding: 8px 12px;"
+                "    padding-left: 20px;"  // More left padding for better alignment
+                "    padding-right: 16px;"
+                "    padding-top: 12px;"
+                "    padding-bottom: 12px;"
                 "    border: none;"
-                "    border-radius: 4px;"
+                "    border-radius: 6px;"
                 "    background-color: transparent;"
+                "    color: #bdc3c7;"  // Light grey text for unselected
                 "    font-weight: normal;"
+                "    font-size: 14px;"  // Slightly larger font
                 "}"
                 "QPushButton:checked {"
-                "    background-color: #007bff;"
-                "    color: white;"
+                "    background-color: #3498db;"  // Bright blue for selected
+                "    color: white;"  // White text for selected
                 "    font-weight: bold;"
                 "}"
                 "QPushButton:hover:!checked {"
-                "    background-color: #e9ecef;"
+                "    background-color: #34495e;"  // Darker grey on hover
+                "    color: #ecf0f1;"  // Lighter text on hover
+                "}"
+                "QPushButton:pressed {"
+                "    background-color: #2980b9;"  // Darker blue when pressed
                 "}"
             );
             
@@ -6278,6 +6848,35 @@ void MPChessClient::setupUI()
         
         // Add stretch to push buttons to top
         navLayout->addStretch();
+        
+        // Add Quit button at the bottom
+        QPushButton* quitButton = new QPushButton("🚪  Quit", navigationPanel);
+        quitButton->setMinimumHeight(50);
+        quitButton->setMaximumHeight(50);
+        quitButton->setStyleSheet(
+            "QPushButton {"
+            "    text-align: left;"
+            "    padding-left: 20px;"  // Match tab button padding
+            "    padding-right: 16px;"
+            "    padding-top: 12px;"
+            "    padding-bottom: 12px;"
+            "    border: none;"
+            "    border-radius: 6px;"
+            "    background-color: transparent;"
+            "    color: #e74c3c;"  // Red color for quit
+            "    font-weight: normal;"
+            "    font-size: 14px;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #c0392b;"  // Darker red on hover
+            "    color: white;"
+            "}"
+            "QPushButton:pressed {"
+            "    background-color: #a93226;"  // Even darker red when pressed
+            "}"
+        );
+        connect(quitButton, &QPushButton::clicked, this, &MPChessClient::close);
+        navLayout->addWidget(quitButton);
 
         logger->info("In MPChessClient::setupUI() -- Creating home page");
         // Create home page
@@ -6374,11 +6973,12 @@ void MPChessClient::setupUI()
         statusMessagesWindow->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         statusMessagesWindow->setStyleSheet(
             "QTextEdit {"
-            "    background-color: #f8f9fa;"
-            "    border: 1px solid #dee2e6;"
+            "    background-color: #2c3e50;"  // Match navigation panel
+            "    color: #ecf0f1;"  // Light text
+            "    border: 1px solid #34495e;"
             "    border-radius: 4px;"
             "    padding: 4px;"
-            "    font-family: 'Consolas', 'Monaco', monospace;"
+            "    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;"
             "    font-size: 11px;"
             "}"
         );
@@ -6405,9 +7005,11 @@ void MPChessClient::setupUI()
         connect(analysisWidget, &AnalysisWidget::requestAnalysis, this, &MPChessClient::onRequestGameAnalysis);
         connect(leaderboardWidget, &LeaderboardWidget::requestAllPlayers, this, &MPChessClient::onRequestLeaderboard);
         
-        // Set initial size
-        resize(1200, 800); // Slightly wider to accommodate navigation panel
+        // Set initial size - increased for better side panel visibility
+        resize(2000, 1000);
+        
         logger->info("Finished MPChessClient::setupUI()");
+        
     } catch (const std::exception& e) {
         logger->error(QString("Exception in setupUI(): %1").arg(e.what()));
     } catch (...) {
@@ -6483,42 +7085,103 @@ void MPChessClient::createMenus()
 
 void MPChessClient::createStatusBar() {
     try {
+        logger->info("createStatusBar: Starting...");
+        
+        // Verify statusBar() is available
+        if (!statusBar()) {
+            logger->error("createStatusBar: statusBar() returned null");
+            throw std::runtime_error("statusBar() returned null");
+        }
+        
         // Create status labels - only for major status updates
         connectionStatusLabel = new QLabel("Disconnected");
+        if (!connectionStatusLabel) {
+            logger->error("createStatusBar: Failed to create connectionStatusLabel");
+            throw std::runtime_error("Failed to create connectionStatusLabel");
+        }
         connectionStatusLabel->setStyleSheet("color: red; font-weight: bold; padding: 2px 8px;");
         
         gameStatusLabel = new QLabel("No active game");
+        if (!gameStatusLabel) {
+            logger->error("createStatusBar: Failed to create gameStatusLabel");
+            throw std::runtime_error("Failed to create gameStatusLabel");
+        }
         gameStatusLabel->setStyleSheet("padding: 2px 8px;");
+        
+        // Create separator label (store it so it doesn't leak)
+        QLabel* separatorLabel = new QLabel("|");
+        if (!separatorLabel) {
+            logger->error("createStatusBar: Failed to create separatorLabel");
+            throw std::runtime_error("Failed to create separatorLabel");
+        }
+        separatorLabel->setStyleSheet("padding: 2px 4px;");
         
         // Add labels to status bar with separators
         statusBar()->addWidget(connectionStatusLabel);
-        statusBar()->addWidget(new QLabel("|")); // Visual separator
+        statusBar()->addWidget(separatorLabel);
         statusBar()->addWidget(gameStatusLabel, 1);
+        
+        logger->info("createStatusBar: Status bar widgets created and added");
         
         // Add initial message to status window
         if (statusMessagesWindow) {
             appendStatusMessage("Chess Client initialized", false);
+            logger->info("createStatusBar: Initial message added to status window");
+        } else {
+            logger->warning("createStatusBar: statusMessagesWindow is null, cannot add initial message");
         }
         
         logger->info("Status bar created successfully");
+        
     } catch (const std::exception& e) {
         logger->error(QString("Exception in createStatusBar(): %1").arg(e.what()));
+        
+        // Clean up any partially created widgets
+        if (connectionStatusLabel) {
+            delete connectionStatusLabel;
+            connectionStatusLabel = nullptr;
+        }
+        if (gameStatusLabel) {
+            delete gameStatusLabel;
+            gameStatusLabel = nullptr;
+        }
+        
+        throw; // Re-throw to let caller handle
+        
     } catch (...) {
         logger->error("Unknown exception in createStatusBar()");
+        
+        // Clean up
+        if (connectionStatusLabel) {
+            delete connectionStatusLabel;
+            connectionStatusLabel = nullptr;
+        }
+        if (gameStatusLabel) {
+            delete gameStatusLabel;
+            gameStatusLabel = nullptr;
+        }
+        
+        throw;
     }
 }
 
 void MPChessClient::appendStatusMessage(const QString& message, bool isError)
 {
     try {
+        // Always log first
+        if (logger) {
+            if (isError) {
+                logger->error(QString("Status: %1").arg(message));
+            } else {
+                logger->info(QString("Status: %1").arg(message));
+            }
+        }
+        
+        // Check if status window exists
         if (!statusMessagesWindow) {
             // If status window doesn't exist yet, just log and return
             if (logger) {
-                if (isError) {
-                    logger->error(message);
-                } else {
-                    logger->info(message);
-                }
+                logger->debug("appendStatusMessage: statusMessagesWindow is null, message logged only");
             }
             return;
         }
@@ -6529,13 +7192,13 @@ void MPChessClient::appendStatusMessage(const QString& message, bool isError)
         // Format message with timestamp and type
         QString formattedMessage;
         if (isError) {
-            formattedMessage = QString("<span style='color: red;'>[%1] ERROR: %2</span>")
+            formattedMessage = QString("<span style='color: #e74c3c;'>[%1] ERROR: %2</span>")  // Bright red for errors
                 .arg(timestamp)
-                .arg(message);
+                .arg(message.toHtmlEscaped()); // Escape HTML to prevent injection
         } else {
-            formattedMessage = QString("<span style='color: #333;'>[%1] %2</span>")
+            formattedMessage = QString("<span style='color: #ecf0f1;'>[%1] %2</span>")  // Light grey for normal messages
                 .arg(timestamp)
-                .arg(message);
+                .arg(message.toHtmlEscaped());
         }
         
         // Append message to status window
@@ -6546,16 +7209,18 @@ void MPChessClient::appendStatusMessage(const QString& message, bool isError)
         cursor.movePosition(QTextCursor::End);
         statusMessagesWindow->setTextCursor(cursor);
         
-        // Log the message
-        if (isError) {
-            logger->error(message);
-        } else {
-            logger->info(message);
-        }
     } catch (const std::exception& e) {
-        logger->error(QString("Exception in appendStatusMessage(): %1").arg(e.what()));
+        if (logger) {
+            logger->error(QString("Exception in appendStatusMessage(): %1").arg(e.what()));
+        } else {
+            qCritical() << "Exception in appendStatusMessage():" << e.what();
+        }
     } catch (...) {
-        logger->error("Unknown exception in appendStatusMessage()");
+        if (logger) {
+            logger->error("Unknown exception in appendStatusMessage()");
+        } else {
+            qCritical() << "Unknown exception in appendStatusMessage()";
+        }
     }
 }
 
@@ -6598,20 +7263,54 @@ void MPChessClient::createGameUI()
     }
 
     logger->info("In MPChessClient::createGameUI() -- Creating gameSplitter");
-    // Create main game area
+    // Create main game area with horizontal splitter
     QSplitter* gameSplitter = new QSplitter(Qt::Horizontal, gameWidget);
 
+    logger->info("In MPChessClient::createGameUI() -- Creating board container");
+    // Create left side: board with player names and move history
+    QWidget* boardContainer = new QWidget(gameSplitter);
+    QVBoxLayout* boardContainerLayout = new QVBoxLayout(boardContainer);
+    boardContainerLayout->setContentsMargins(5, 5, 5, 5);
+    boardContainerLayout->setSpacing(5);
+    
+    // Create opponent name label (top)
+    opponentNameLabel = new QLabel(boardContainer);
+    opponentNameLabel->setTextFormat(Qt::RichText);
+    opponentNameLabel->setAlignment(Qt::AlignCenter);
+    opponentNameLabel->setMinimumHeight(40);
+    opponentNameLabel->setStyleSheet("background-color: rgba(50,50,50,0.1); border-radius: 5px; padding: 8px; font-size: 14pt; font-weight: bold;");
+    opponentNameLabel->setText("Opponent");
+    
     logger->info("In MPChessClient::createGameUI() -- Creating boardWidget");
     // Create board widget
-    boardWidget = new ChessBoardWidget(themeManager, audioManager, gameSplitter, logger);
-    boardWidget->setMinimumSize(400, 400);
+    boardWidget = new ChessBoardWidget(themeManager, audioManager, boardContainer, logger);
+    boardWidget->setMinimumSize(500, 500);
+    
+    // Create player name label (bottom)
+    playerNameLabel = new QLabel(boardContainer);
+    playerNameLabel->setTextFormat(Qt::RichText);
+    playerNameLabel->setAlignment(Qt::AlignCenter);
+    playerNameLabel->setMinimumHeight(40);
+    playerNameLabel->setStyleSheet("background-color: rgba(240,240,240,0.3); border-radius: 5px; padding: 8px; font-size: 14pt; font-weight: bold;");
+    playerNameLabel->setText("You");
+    
+    logger->info("In MPChessClient::createGameUI() -- Creating moveHistoryWidget");
+    // Create move history widget (under board)
+    moveHistoryWidget = new MoveHistoryWidget(boardContainer);
+    moveHistoryWidget->setMaximumHeight(200);
+    
+    // Add to board container layout
+    boardContainerLayout->addWidget(opponentNameLabel);
+    boardContainerLayout->addWidget(boardWidget, 1);
+    boardContainerLayout->addWidget(playerNameLabel);
+    boardContainerLayout->addWidget(moveHistoryWidget);
     
     logger->info("In MPChessClient::createGameUI() -- Creating sidePanel");
-    // Create side panel - store the pointer as a class member
+    // Create side panel for captured pieces and controls
     sidePanel = new QWidget(gameSplitter);
-    sidePanelLayout = new QVBoxLayout(sidePanel); // Store the layout pointer as a class member
+    sidePanelLayout = new QVBoxLayout(sidePanel);
 
-    // Create player info label (initially empty)
+    // Create player info label (initially empty) - keep for compatibility
     logger->info("In MPChessClient::createGameUI() -- Creating playerInfoLabel");
     playerInfoLabel = new QLabel(sidePanel);
     playerInfoLabel->setTextFormat(Qt::RichText);
@@ -6624,10 +7323,6 @@ void MPChessClient::createGameUI()
     logger->info("In MPChessClient::createGameUI() -- Creating capturedPiecesWidget");
     // Create captured pieces widget
     capturedPiecesWidget = new CapturedPiecesWidget(themeManager, sidePanel);
-    
-    logger->info("In MPChessClient::createGameUI() -- Creating moveHistoryWidget");
-    // Create move history widget
-    moveHistoryWidget = new MoveHistoryWidget(sidePanel);
     
     logger->info("In MPChessClient::createGameUI() -- Creating gameTimerWidget");
     // Create game timer widget
@@ -6643,6 +7338,30 @@ void MPChessClient::createGameUI()
     gameControlsLayout->addWidget(resignButton);
     gameControlsLayout->addWidget(drawButton);
 
+    logger->info("In MPChessClient::createGameUI() -- After creating game controls, adding replay controls");
+    // After creating game controls, adding replay controls
+    QHBoxLayout* replayControlsLayout = new QHBoxLayout();
+
+    replaySlider = new QSlider(Qt::Horizontal, sidePanel);
+    replaySlider->setEnabled(false);
+
+    replayPrevButton = new QPushButton("◄", sidePanel);
+    replayPrevButton->setEnabled(false);
+    replayPrevButton->setMaximumWidth(40);
+
+    replayPlayButton = new QPushButton("▶", sidePanel);
+    replayPlayButton->setEnabled(false);
+    replayPlayButton->setMaximumWidth(40);
+
+    replayNextButton = new QPushButton("►", sidePanel);
+    replayNextButton->setEnabled(false);
+    replayNextButton->setMaximumWidth(40);
+
+    replayControlsLayout->addWidget(replayPrevButton);
+    replayControlsLayout->addWidget(replayPlayButton);
+    replayControlsLayout->addWidget(replayNextButton);
+    replayControlsLayout->addWidget(replaySlider, 1);
+
     logger->info("In MPChessClient::createGameUI() -- Creating chatDisplay and chatInput");
     // Create chat area
     chatDisplay = new QTextEdit(sidePanel);
@@ -6652,18 +7371,21 @@ void MPChessClient::createGameUI()
     chatInput->setPlaceholderText("Type a message...");
     
     logger->info("In MPChessClient::createGameUI() -- Adding widgets to side panel");
-    // Add widgets to side panel - add playerInfoLabel first
+    // Add widgets to side panel (no move history here anymore)
     sidePanelLayout->addWidget(playerInfoLabel);
     sidePanelLayout->addWidget(capturedPiecesWidget);
     sidePanelLayout->addWidget(gameTimerWidget);
     sidePanelLayout->addLayout(gameControlsLayout);
-    sidePanelLayout->addWidget(moveHistoryWidget);
-    sidePanelLayout->addWidget(chatDisplay);
+    sidePanelLayout->addLayout(replayControlsLayout);
+    sidePanelLayout->addWidget(chatDisplay, 1);
     sidePanelLayout->addWidget(chatInput);
     
+    // Set minimum width for side panel
+    sidePanel->setMinimumWidth(300);
+    
     logger->info("In MPChessClient::createGameUI() -- Set splitter sizes");
-    // Set splitter sizes
-    gameSplitter->addWidget(boardWidget);
+    // Set splitter sizes - board container gets more space
+    gameSplitter->addWidget(boardContainer);
     gameSplitter->addWidget(sidePanel);
     gameSplitter->setStretchFactor(0, 3);
     gameSplitter->setStretchFactor(1, 1);
@@ -6995,8 +7717,24 @@ void MPChessClient::showLoginDialog()
 void MPChessClient::showMessage(const QString& message, bool error)
 {
     try {
+        // Always log the message first
+        if (logger) {
+            if (error) {
+                logger->error(message);
+            } else {
+                logger->info(message);
+            }
+        }
+        
         // Add message to scrolling status window (with null check)
-        appendStatusMessage(message, error);
+        if (statusMessagesWindow) {
+            appendStatusMessage(message, error);
+        } else {
+            // If status window doesn't exist, just log it
+            if (logger) {
+                logger->warning("showMessage: statusMessagesWindow is null, message not displayed in UI");
+            }
+        }
         
         // Only show major updates in status bar temporarily
         if (error || message.contains("Connected") || message.contains("Disconnected") || 
@@ -7005,19 +7743,26 @@ void MPChessClient::showMessage(const QString& message, bool error)
             // Check if statusBar exists before using it
             if (statusBar()) {
                 statusBar()->showMessage(message, 3000); // Show for 3 seconds
+            } else if (logger) {
+                logger->warning("showMessage: statusBar() is null, message not displayed in status bar");
             }
         }
         
     } catch (const std::exception& e) {
         if (logger) {
             logger->error(QString("Exception in showMessage(): %1").arg(e.what()));
+        } else {
+            qCritical() << "Exception in showMessage():" << e.what();
         }
     } catch (...) {
         if (logger) {
             logger->error("Unknown exception in showMessage()");
+        } else {
+            qCritical() << "Unknown exception in showMessage()";
         }
     }
 }
+
 
 void MPChessClient::enterReplayMode(const QVector<ChessMove>& moves) {
     replayMode = true;
@@ -7107,34 +7852,135 @@ void MPChessClient::loadSettings()
     logger->info("In MPChessClient::loadSettings() -- Finished");
 }
 
+void MPChessClient::positionWindow()
+{
+    try {
+        logger->info("positionWindow: Starting...");
+        
+        // Get the primary screen
+        QScreen* screen = QGuiApplication::primaryScreen();
+        if (!screen) {
+            logger->warning("positionWindow: Could not get primary screen");
+            return;
+        }
+        
+        QRect screenGeometry = screen->availableGeometry();
+        logger->info(QString("positionWindow: Screen geometry: %1x%2 at (%3,%4)")
+            .arg(screenGeometry.width())
+            .arg(screenGeometry.height())
+            .arg(screenGeometry.x())
+            .arg(screenGeometry.y()));
+        
+        // Get our window size
+        QSize windowSize = size();
+        logger->info(QString("positionWindow: Window size: %1x%2")
+            .arg(windowSize.width())
+            .arg(windowSize.height()));
+        
+        // Use QSharedMemory to coordinate positions across instances
+        // Calculate cascade offset based on window size (10% of width, min 60px)
+        int cascadeOffset = qMax(60, windowSize.width() / 10);
+        int maxPositions = 15;
+        int positionIndex = 0;
+        
+        // Try each position until we find a free one
+        for (int i = 0; i < maxPositions; ++i) {
+            QString key = QString("MPChessClient_Pos_%1").arg(i);
+            QSharedMemory* sharedMem = new QSharedMemory(key, this);
+            
+            // Try to create shared memory for this position
+            if (sharedMem->create(1)) {
+                // Successfully claimed this position
+                positionIndex = i;
+                logger->info(QString("positionWindow: Claimed position %1").arg(i));
+                // Keep the shared memory attached so other instances know this position is taken
+                break;
+            } else {
+                // Position already taken, try next
+                delete sharedMem;
+            }
+        }
+        
+        // Calculate position based on index
+        int xOffset = positionIndex * cascadeOffset;
+        int yOffset = positionIndex * cascadeOffset;
+        
+        // Calculate position ensuring window stays on screen
+        int x = screenGeometry.x() + xOffset;
+        int y = screenGeometry.y() + yOffset;
+        
+        // Ensure window doesn't go off screen
+        if (x + windowSize.width() > screenGeometry.right()) {
+            x = screenGeometry.right() - windowSize.width() - 20;
+        }
+        
+        if (y + windowSize.height() > screenGeometry.bottom()) {
+            y = screenGeometry.bottom() - windowSize.height() - 20;
+        }
+        
+        // Ensure minimum position (not off left/top edge)
+        x = qMax(x, screenGeometry.x());
+        y = qMax(y, screenGeometry.y());
+        
+        logger->info(QString("positionWindow: Moving window to (%1,%2) [position: %3]")
+            .arg(x).arg(y).arg(positionIndex));
+        
+        // Move the window
+        move(x, y);
+        
+        logger->info("positionWindow: Window positioned successfully");
+        
+    } catch (const std::exception& e) {
+        logger->error(QString("Exception in positionWindow(): %1").arg(e.what()));
+    } catch (...) {
+        logger->error("Unknown exception in positionWindow()");
+    }
+}
+
 void MPChessClient::updateTheme()
 {
     try {
-        logger->info("In MPChessClient::updateTheme() -- Start... setStyleSheet()...");
-        // Apply theme to the application
-        setStyleSheet(themeManager->getStyleSheet());
-
-        logger->info("In MPChessClient::updateTheme() -- boardWidget->updateTheme()...");
-        if(boardWidget == nullptr || !boardWidget)
-        {
-            logger->error("In MPChessClient::updateTheme() -- boardWidget is nullptr");
-            return; // Don't continue if boardWidget is null
-        }
-
-        // Update board theme
-        boardWidget->updateTheme();
+        logger->info("updateTheme: Starting...");
         
-        logger->info("In MPChessClient::updateTheme() -- capturedPiecesWidget->updateTheme()...");
-
-        if(capturedPiecesWidget == nullptr || !capturedPiecesWidget)
-        {
-            logger->error("In MPChessClient::updateTheme() -- capturedPiecesWidget is nullptr");
-            return; // Don't continue if capturedPiecesWidget is null
+        // Verify themeManager exists
+        if (!themeManager) {
+            logger->error("updateTheme: themeManager is null");
+            return;
         }
-        // Update captured pieces widget
-        capturedPiecesWidget->updateTheme();
+        
+        logger->info("updateTheme: Applying stylesheet...");
+        
+        // Apply theme to the application
+        QString styleSheet = themeManager->getStyleSheet();
+        if (styleSheet.isEmpty()) {
+            logger->warning("updateTheme: themeManager returned empty stylesheet");
+        }
+        setStyleSheet(styleSheet);
 
-        logger->info("In MPChessClient::updateTheme() -- Finished");
+        logger->info("updateTheme: Checking boardWidget...");
+        
+        // Update board theme - with null check
+        if (boardWidget) {
+            logger->info("updateTheme: Updating boardWidget theme...");
+            boardWidget->updateTheme();
+            logger->info("updateTheme: boardWidget theme updated");
+        } else {
+            logger->warning("updateTheme: boardWidget is null, skipping board theme update");
+        }
+        
+        logger->info("updateTheme: Checking capturedPiecesWidget...");
+        
+        // Update captured pieces widget - with null check
+        if (capturedPiecesWidget) {
+            logger->info("updateTheme: Updating capturedPiecesWidget theme...");
+            capturedPiecesWidget->updateTheme();
+            logger->info("updateTheme: capturedPiecesWidget theme updated");
+        } else {
+            logger->warning("updateTheme: capturedPiecesWidget is null, skipping captured pieces theme update");
+        }
+
+        logger->info("updateTheme: Finished successfully");
+        
     } catch (const std::exception& e) {
         logger->error(QString("Exception in updateTheme(): %1").arg(e.what()));
     } catch (...) {

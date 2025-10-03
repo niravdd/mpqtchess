@@ -384,6 +384,7 @@ public:
     void setLogToFile(bool enabled, const QString& filePath = QString());
     bool isLoggingToFile() const;
     void checkLogFileSize();
+    void setPlayerColorPrefix(const QString& colorPrefix);
     
     QString getLogFilePath() const;
 
@@ -397,6 +398,7 @@ private:
     QFile logFile;
     QMutex mutex;
     QString sessionId;
+    QString playerPrefix;
     
     void log(LogLevel level, const QString& message);
     QString levelToString(LogLevel level) const;
@@ -728,6 +730,7 @@ signals:
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
@@ -749,6 +752,9 @@ private:
     
     Position selectedPosition;
     Position dragStartPosition;
+    ChessPieceItem* draggedPiece;
+    bool isDragging;
+    QPointF dragOriginalPos;
     
     QVector<QGraphicsRectItem*> highlightItems;
     QVector<QGraphicsEllipseItem*> hintItems;
@@ -1334,6 +1340,8 @@ private:
     bool replayMode;
     int currentReplayIndex;
     QLabel* playerInfoLabel = nullptr;
+    QLabel* playerNameLabel = nullptr;
+    QLabel* opponentNameLabel = nullptr;
     QWidget* sidePanel = nullptr;
     QVBoxLayout* sidePanelLayout = nullptr;
 
@@ -1366,6 +1374,7 @@ private:
     void loadSettings();
     
     void updateTheme();
+    void positionWindow();
 };
 
 #endif // MPCHESSCLIENT_H
